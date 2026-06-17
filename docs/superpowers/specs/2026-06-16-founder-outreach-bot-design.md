@@ -40,7 +40,7 @@ Telegram (you send a LinkedIn URL)
 [3] kb       ── load dedicated knowledge base (experience, reviews, pitch angles)
         │
         ▼
-[4] draft    ── Claude (Sonnet 4.6) → {subject, body}
+[4] draft    ── LLM (DeepSeek/Qwen, OpenAI-compatible) → {subject, body}
         │
         ▼
 Telegram reply: preview + email found + [✅ Save to Gmail] button
@@ -63,7 +63,7 @@ Each is a small, independently testable unit with one responsibility.
 | `enrich.py` | Adapter chain `ApolloProvider → HunterProvider → PatternGuessProvider`. Each implements `find(linkedin_url) -> Lead | None`; chain stops at first provider returning a usable email | Apollo/Hunter APIs |
 | `company.py` | Fetch company site (home/about) + optional recent-news search → short context summary | httpx, optional search API |
 | `kb.py` | Load + concatenate knowledge base markdown into prompt context | local `kb/` files |
-| `drafter.py` | Build prompt from Lead + company context + KB, call Claude, parse `{subject, body}` | Anthropic SDK |
+| `drafter.py` | Build prompt from Lead + company context + KB, call the LLM (JSON mode), parse `{subject, body}` | openai SDK (DeepSeek/Qwen base_url) |
 | `gmail.py` | Google OAuth + create draft | google-api-python-client |
 | `config.py` | Load env vars / secrets; no hardcoded paths | — |
 
@@ -121,15 +121,15 @@ user fills in real details locally.
 | `TELEGRAM_OWNER_ID` | Whitelist — only this user ID may use the bot |
 | `APOLLO_API_KEY` | Primary enrichment |
 | `HUNTER_API_KEY` | Fallback enrichment |
-| `ANTHROPIC_API_KEY` | Drafting (Claude Sonnet 4.6) |
+| `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | Drafting via OpenAI-compatible API (DeepSeek default; Qwen by changing base_url + model) |
 | `GOOGLE_OAUTH_CLIENT` / token | Gmail draft creation |
 | `SEARCH_API_KEY` (optional) | Recent-news context |
 
 ## Stack
 
 - Python 3.11+
-- `python-telegram-bot`, `httpx`, `anthropic`, `google-api-python-client`,
-  `google-auth-oauthlib`, `python-dotenv`
+- `python-telegram-bot`, `httpx`, `openai` (OpenAI-compatible client for DeepSeek/Qwen),
+  `google-api-python-client`, `google-auth-oauthlib`, `python-dotenv`
 - Deploy: Railway/Render (start local, env-var-driven so deploy is trivial)
 
 ## Testing strategy

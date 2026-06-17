@@ -14,7 +14,7 @@ You send a LinkedIn URL in Telegram
    → enrich (Apollo → Hunter → pattern-guess)   find name/role/company/email
    → company context (site + recent news)
    → load your knowledge base
-   → draft email with Claude
+   → draft email with an LLM (DeepSeek/Qwen, OpenAI-compatible)
    → preview in Telegram + [✅ Save to Gmail] button
    → Gmail draft created, ready to review and send
 ```
@@ -33,9 +33,11 @@ code changes needed.
 
 ## Setup
 
-_To be filled in during implementation._ Requires API keys for Telegram, Apollo,
-Hunter, Anthropic, and Google OAuth (Gmail). See the design doc for the full
-config list.
+Copy `.env.example` → `.env` and fill it in. Requires: a Telegram bot token +
+your numeric user ID, an OpenAI-compatible LLM key (DeepSeek or Qwen), Apollo
+(and optionally Hunter) for enrichment, and Google OAuth (`credentials.json` →
+run `python auth_gmail.py` to produce `token.json`) for saving Gmail drafts.
+Then: `pip install -e ".[dev]"`, `python auth_gmail.py`, `python run.py`.
 
 ## License
 

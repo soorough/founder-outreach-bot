@@ -14,7 +14,9 @@ def _require(name: str) -> str:
 class Settings:
     telegram_bot_token: str
     telegram_owner_id: int
-    anthropic_api_key: str
+    llm_api_key: str
+    llm_base_url: str
+    llm_model: str
     apollo_api_key: Optional[str]
     hunter_api_key: Optional[str]
     google_credentials_path: str
@@ -26,7 +28,9 @@ class Settings:
         return cls(
             telegram_bot_token=_require("TELEGRAM_BOT_TOKEN"),
             telegram_owner_id=int(_require("TELEGRAM_OWNER_ID")),
-            anthropic_api_key=_require("ANTHROPIC_API_KEY"),
+            llm_api_key=_require("LLM_API_KEY"),
+            llm_base_url=os.getenv("LLM_BASE_URL", "https://api.deepseek.com"),
+            llm_model=os.getenv("LLM_MODEL", "deepseek-chat"),
             apollo_api_key=os.getenv("APOLLO_API_KEY") or None,
             hunter_api_key=os.getenv("HUNTER_API_KEY") or None,
             google_credentials_path=os.getenv("GOOGLE_CREDENTIALS_PATH", "credentials.json"),

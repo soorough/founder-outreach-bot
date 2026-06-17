@@ -1,7 +1,7 @@
 import logging
 
 import httpx
-from anthropic import Anthropic
+from openai import OpenAI
 from dotenv import load_dotenv
 
 from founder_bot.bot import Bot
@@ -23,7 +23,7 @@ def main():
     settings = Settings.from_env()
 
     http = httpx.Client(timeout=20.0)
-    anthropic_client = Anthropic(api_key=settings.anthropic_api_key)
+    llm_client = OpenAI(api_key=settings.llm_api_key, base_url=settings.llm_base_url)
     gmail_service = build_service(settings.google_token_path)
 
     chain = EnrichmentChain(
@@ -37,7 +37,7 @@ def main():
         enrich=chain.run,
         fetch_company=lambda domain: fetch_company_context(domain, http),
         load_kb=lambda: load_kb(settings.kb_dir),
-        draft=lambda lead, ctx, kb: draft_email(anthropic_client, lead, ctx, kb),
+        draft=lambda lead, ctx, kb: draft_email(llm_client, settings.llm_model, lead, ctx, kb),
     )
 
     bot = Bot(

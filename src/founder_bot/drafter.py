@@ -2,12 +2,12 @@ from typing import Optional
 
 from founder_bot.models import Draft, Lead
 
-MODEL = "claude-sonnet-4-6"
-
 _SYSTEM = (
     "You write concise, personalized cold emails for job/role outreach to founders. "
     "Warm, direct, no corporate buzzwords, no flattery padding. 90-150 words. "
-    "Reference something specific about the founder's company. End with a small, low-friction ask."
+    "Reference something specific about the founder's company. End with a small, low-friction ask. "
+    'Return ONLY a JSON object with exactly two string fields: "subject" and "body". '
+    "No markdown fences, no commentary, no extra keys."
 )
 
 
@@ -19,17 +19,27 @@ def _build_prompt(lead: Lead, company_context: Optional[str], kb_text: str) -> s
         f"{', ' + lead.title if lead.title else ''}"
         f"{' at ' + lead.company if lead.company else ''}.\n\n"
         f"Company context:\n{company_block}\n\n"
-        "Write a cold email from me to this founder. Return a subject and body."
+        "Write a cold email from me to this founder as a JSON object with "
+        '"subject" and "body".'
     )
 
 
-def draft_email(client, lead: Lead, company_context: Optional[str], kb_text: str) -> Draft:
-    """Call Claude with structured output and return a Draft. Raises on API error (caller handles)."""
-    response = client.messages.parse(
-        model=MODEL,
+def draft_email(
+    client, model: str, lead: Lead, company_context: Optional[str], kb_text: str
+) -> Draft:
+    """Call an OpenAI-compatible chat model (DeepSeek/Qwen) and return a Draft.
+
+    Uses JSON-object response mode and validates the content into a Draft.
+    Raises on API or parse error (caller handles).
+    """
+    response = client.chat.completions.create(
+        model=model,
         max_tokens=1024,
-        system=_SYSTEM,
-        messages=[{"role": "user", "content": _build_prompt(lead, company_context, kb_text)}],
-        output_format=Draft,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": _SYSTEM},
+            {"role": "user", "content": _build_prompt(lead, company_context, kb_text)},
+        ],
     )
-    return response.parsed_output
+    content = response.choices[0].message.content
+    return Draft.model_validate_json(content)
