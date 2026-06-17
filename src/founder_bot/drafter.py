@@ -5,6 +5,7 @@ from founder_bot.models import Draft, Lead
 
 _SYSTEM = (
     "You write concise, personalized cold emails for job/role outreach to founders. "
+    "Open with a short greeting using the recipient's first name (e.g., \"Hi Pablo,\"). "
     "Warm, direct, no corporate buzzwords, no flattery padding. 90-150 words. "
     "End with a small, low-friction ask. Do NOT add a signature, sign-off with name, "
     "or contact links — a standard footer is appended automatically; end right after the ask. "

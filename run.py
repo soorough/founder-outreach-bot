@@ -67,7 +67,13 @@ def main():
     def save_gmail_draft(email, draft):
         imap = connect(settings.gmail_address, settings.gmail_app_password)
         try:
-            create_draft(imap, email, draft, from_email=settings.gmail_address, attachment=resume)
+            create_draft(
+                imap, email, draft,
+                from_email=settings.gmail_address,
+                attachment=resume,
+                footer_text=settings.email_footer,
+                footer_html=settings.email_footer_html,
+            )
         finally:
             try:
                 imap.logout()
@@ -103,13 +109,13 @@ def main():
         fetch_company=lambda domain: fetch_company_context(domain, http),
         load_kb=lambda: settings.kb_text or load_kb(settings.kb_dir),
         draft=lambda lead, ctx, kb: draft_email(llm_client, settings.llm_model, lead, ctx, kb),
-        signature=settings.email_footer,
     )
 
     bot = Bot(
         owner_id=settings.telegram_owner_id,
         pipeline=pipeline,
         create_gmail_draft=save_gmail_draft,
+        signature=settings.email_footer,
     )
     app = bot.build_application(settings.telegram_bot_token)
     app.run_polling()

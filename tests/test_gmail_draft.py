@@ -17,6 +17,21 @@ def test_build_message_no_attachment_has_none():
     assert list(msg.iter_attachments()) == []
 
 
+def test_build_message_renders_html_alternative_with_footer_links():
+    footer_html = '<p><a href="https://sourav.live">Portfolio</a></p>'
+    msg = build_message(
+        "a@b.com", Draft(subject="S", body="Hi Ada,\n\nLet's talk."),
+        footer_text="Souravh\nsourav.live", footer_html=footer_html,
+    )
+    html_parts = [p for p in msg.walk() if p.get_content_type() == "text/html"]
+    plain_parts = [p for p in msg.walk() if p.get_content_type() == "text/plain"]
+    assert html_parts and plain_parts
+    html = html_parts[0].get_content()
+    assert '<a href="https://sourav.live">Portfolio</a>' in html
+    assert "<p>Hi Ada,</p>" in html  # body converted to HTML paragraphs
+    assert "Souravh" in plain_parts[0].get_content()  # plain footer in text part
+
+
 class _FakeImap:
     def __init__(self):
         self.calls = []

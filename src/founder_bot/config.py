@@ -10,6 +10,15 @@ DEFAULT_FOOTER = (
     "souravhpateriyad04@gmail.com"
 )
 
+# HTML footer — clickable link text instead of raw URLs.
+DEFAULT_FOOTER_HTML = (
+    '<p><strong>Souravh Pateriya</strong><br>'
+    '<a href="https://sourav.live">Portfolio</a> | '
+    '<a href="https://github.com/soorough">GitHub</a> | '
+    '<a href="https://www.linkedin.com/in/souravhpateriya">LinkedIn</a></p>'
+    '<p>📩 <a href="mailto:souravhpateriyad04@gmail.com">souravhpateriyad04@gmail.com</a></p>'
+)
+
 
 def _require(name: str) -> str:
     value = os.getenv(name)
@@ -33,6 +42,7 @@ class Settings:
     kb_dir: str
     kb_text: Optional[str]  # if set (e.g. on Railway), used instead of kb/ files
     email_footer: str
+    email_footer_html: str
     resume_path: Optional[str]  # local PDF to attach to every draft
     resume_url: Optional[str]   # or a hosted PDF URL (for cloud deploys)
 
@@ -52,6 +62,7 @@ class Settings:
             kb_dir=os.getenv("KB_DIR", "kb"),
             kb_text=os.getenv("KB_TEXT") or None,
             email_footer=os.getenv("EMAIL_FOOTER") or DEFAULT_FOOTER,
+            email_footer_html=os.getenv("EMAIL_FOOTER_HTML") or DEFAULT_FOOTER_HTML,
             resume_path=os.getenv("RESUME_PATH") or None,
             resume_url=os.getenv("RESUME_URL") or None,
         )

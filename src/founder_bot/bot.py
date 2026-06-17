@@ -11,11 +11,12 @@ from founder_bot.pipeline import InvalidUrlError
 logger = logging.getLogger(__name__)
 
 
-def _format_preview(result: Result, label: str) -> str:
+def _format_preview(result: Result, label: str, signature: str = "") -> str:
     lead = result.lead
     email = lead.email or "(none found)"
     status = f", {lead.email_status}" if lead.email_status else ""
     warnings = "\n".join(f"⚠️ {w}" for w in result.warnings)
+    body = result.draft.body + (f"\n\n{signature}" if signature else "")
     return (
         f"*[{label}]*\n"
         f"*To:* {lead.name}"
@@ -23,7 +24,7 @@ def _format_preview(result: Result, label: str) -> str:
         f"{' @ ' + lead.company if lead.company else ''}\n"
         f"*Email:* {email} ({lead.email_confidence}{status})\n\n"
         f"*Subject:* {result.draft.subject}\n\n"
-        f"{result.draft.body}\n\n"
+        f"{body}\n\n"
         f"{warnings}"
     ).strip()
 
@@ -33,10 +34,11 @@ class Bot:
     list of drafted Results so each can be saved by index.
     """
 
-    def __init__(self, owner_id: int, pipeline, create_gmail_draft):
+    def __init__(self, owner_id: int, pipeline, create_gmail_draft, signature: str = ""):
         self.owner_id = owner_id
         self.pipeline = pipeline
         self.create_gmail_draft = create_gmail_draft
+        self.signature = signature
         self._pending: dict[int, list[Result]] = {}
 
     async def handle_url(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -61,7 +63,8 @@ class Bot:
                 [[InlineKeyboardButton("✅ Save to Gmail", callback_data=f"save:{index}")]]
             )
             await update.message.reply_text(
-                _format_preview(result, label), parse_mode="Markdown", reply_markup=keyboard
+                _format_preview(result, label, self.signature),
+                parse_mode="Markdown", reply_markup=keyboard,
             )
         if len(results) > 1:
             await update.message.reply_text(
