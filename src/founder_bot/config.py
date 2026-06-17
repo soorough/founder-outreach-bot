@@ -23,6 +23,7 @@ class Settings:
     gmail_address: str
     gmail_app_password: str
     kb_dir: str
+    kb_text: Optional[str]  # if set (e.g. on Railway), used instead of kb/ files
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -38,4 +39,5 @@ class Settings:
             gmail_address=_require("GMAIL_ADDRESS"),
             gmail_app_password=_require("GMAIL_APP_PASSWORD"),
             kb_dir=os.getenv("KB_DIR", "kb"),
+            kb_text=os.getenv("KB_TEXT") or None,
         )

@@ -65,7 +65,7 @@ def main():
         verify_email=verifier.verify,
         find_team=team_finder.find,
         fetch_company=lambda domain: fetch_company_context(domain, http),
-        load_kb=lambda: load_kb(settings.kb_dir),
+        load_kb=lambda: settings.kb_text or load_kb(settings.kb_dir),
         draft=lambda lead, ctx, kb: draft_email(llm_client, settings.llm_model, lead, ctx, kb),
     )
 
