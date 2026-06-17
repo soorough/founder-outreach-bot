@@ -25,6 +25,21 @@ def _clean_company(company: str) -> str:
     return re.sub(r"\s*\(.*?\)\s*", " ", company).strip()
 
 
+# Domains that are directories/socials, never a company's own site.
+_AGGREGATORS = {
+    "linkedin.com", "crunchbase.com", "twitter.com", "x.com", "facebook.com",
+    "instagram.com", "wikipedia.org", "bloomberg.com", "github.com", "medium.com",
+    "youtube.com", "pitchbook.com", "tracxn.com", "glassdoor.com", "ycombinator.com",
+    "duckduckgo.com", "reddit.com", "producthunt.com",
+}
+
+
+def _is_company_domain(domain: Optional[str]) -> bool:
+    return bool(domain) and not any(
+        domain == s or domain.endswith("." + s) for s in _AGGREGATORS
+    )
+
+
 class IdentityProvider(Protocol):
     def find(self, linkedin_url: str) -> Optional[Lead]:
         ...
@@ -159,11 +174,6 @@ class CompanyDomainResolver:
     """
 
     SEARCH_URL = "https://google.serper.dev/search"
-    _SKIP = {
-        "linkedin.com", "crunchbase.com", "twitter.com", "x.com", "facebook.com",
-        "instagram.com", "wikipedia.org", "bloomberg.com", "github.com", "medium.com",
-        "youtube.com", "pitchbook.com", "tracxn.com", "glassdoor.com", "ycombinator.com",
-    }
 
     def __init__(self, api_key: Optional[str], client: httpx.Client):
         self.api_key = api_key
@@ -183,7 +193,37 @@ class CompanyDomainResolver:
             return lead
         for item in (resp.json() or {}).get("organic", []):
             domain = _domain_from_url(item.get("link"))
-            if domain and not any(domain == s or domain.endswith("." + s) for s in self._SKIP):
+            if _is_company_domain(domain):
+                return lead.model_copy(update={"domain": domain})
+        return lead
+
+
+class DuckDuckGoDomainResolver:
+    """Keyless fallback domain resolver via DuckDuckGo HTML results (free, no signup;
+    may rate-limit). Sets ``lead.domain`` only — slots into the chain before Hunter.
+    """
+
+    SEARCH_URL = "https://html.duckduckgo.com/html/"
+    _HREF = re.compile(r'href="(https?://[^"]+)"', re.IGNORECASE)
+
+    def __init__(self, client: httpx.Client):
+        self.client = client
+
+    def fill_email(self, lead: Lead) -> Lead:
+        if lead.domain or not lead.company:
+            return lead
+        try:
+            resp = self.client.post(
+                self.SEARCH_URL,
+                data={"q": f"{lead.company} startup official website"},
+                headers={"User-Agent": _BROWSER_UA},
+            )
+            resp.raise_for_status()
+        except httpx.HTTPError:
+            return lead
+        for match in self._HREF.finditer(resp.text):
+            domain = _domain_from_url(match.group(1))
+            if _is_company_domain(domain):
                 return lead.model_copy(update={"domain": domain})
         return lead
 

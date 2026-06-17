@@ -1,7 +1,7 @@
 import httpx
 from founder_bot.enrich import (
     ApolloProvider, LinkedInScrapeProvider, HunterProvider, PatternGuessProvider,
-    CompanyDomainResolver, EnrichmentChain,
+    CompanyDomainResolver, DuckDuckGoDomainResolver, EnrichmentChain,
 )
 from founder_bot.models import Lead
 
@@ -146,6 +146,32 @@ def test_resolver_never_sets_email():
     handler = lambda r: httpx.Response(200, json={"organic": [{"link": "https://karumi.ai"}]})
     out = CompanyDomainResolver(api_key="k", client=_client(handler)).fill_email(Lead(name="P", company="Karumi"))
     assert out.email is None
+
+
+# --- DuckDuckGo domain resolver (keyless) ---
+
+def test_ddg_resolver_picks_real_domain_from_hrefs():
+    html = (
+        '<a href="//duckduckgo.com/favicon.ico">x</a>'
+        '<a href="https://www.ycombinator.com/companies/karumi">yc</a>'
+        '<a href="https://www.karumi.ai/">site</a>'
+    )
+    out = DuckDuckGoDomainResolver(_client(lambda r: httpx.Response(200, text=html))).fill_email(
+        Lead(name="Pablo", company="Karumi (YC F25)")
+    )
+    assert out.domain == "karumi.ai"
+
+
+def test_ddg_resolver_skips_when_domain_known():
+    out = DuckDuckGoDomainResolver(_client(lambda r: httpx.Response(500))).fill_email(
+        Lead(name="Pablo", company="Karumi", domain="known.com")
+    )
+    assert out.domain == "known.com"
+
+
+def test_ddg_resolver_no_company_unchanged():
+    out = DuckDuckGoDomainResolver(_client(lambda r: httpx.Response(500))).fill_email(Lead(name="Pablo"))
+    assert out.domain is None
 
 
 # --- Pattern guess ---

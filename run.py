@@ -9,8 +9,8 @@ from founder_bot.company import fetch_company_context
 from founder_bot.config import Settings
 from founder_bot.drafter import draft_email
 from founder_bot.enrich import (
-    ApolloProvider, CompanyDomainResolver, EnrichmentChain, HunterProvider,
-    LinkedInScrapeProvider, PatternGuessProvider,
+    ApolloProvider, CompanyDomainResolver, DuckDuckGoDomainResolver, EnrichmentChain,
+    HunterProvider, LinkedInScrapeProvider, PatternGuessProvider,
 )
 from founder_bot.gmail_draft import connect, create_draft
 from founder_bot.kb import load_kb
@@ -42,7 +42,8 @@ def main():
             LinkedInScrapeProvider(http),                   # free fallback: name + company from meta tags
         ],
         email_fillers=[
-            CompanyDomainResolver(settings.serper_api_key, http),  # find real domain first
+            CompanyDomainResolver(settings.serper_api_key, http),  # real domain (Serper, if key)
+            DuckDuckGoDomainResolver(http),                        # real domain (keyless fallback)
             HunterProvider(settings.hunter_api_key, http),
             PatternGuessProvider(),
         ],
