@@ -152,6 +152,42 @@ class HunterProvider:
         return lead.model_copy(update=updates) if updates else lead
 
 
+class CompanyDomainResolver:
+    """Resolve a company's real website domain via Serper (Google) search when the
+    domain is unknown. Sets ``lead.domain`` (never an email), so it slots into the
+    filler chain *before* Hunter — everything downstream then uses the real domain.
+    """
+
+    SEARCH_URL = "https://google.serper.dev/search"
+    _SKIP = {
+        "linkedin.com", "crunchbase.com", "twitter.com", "x.com", "facebook.com",
+        "instagram.com", "wikipedia.org", "bloomberg.com", "github.com", "medium.com",
+        "youtube.com", "pitchbook.com", "tracxn.com", "glassdoor.com", "ycombinator.com",
+    }
+
+    def __init__(self, api_key: Optional[str], client: httpx.Client):
+        self.api_key = api_key
+        self.client = client
+
+    def fill_email(self, lead: Lead) -> Lead:
+        if lead.domain or not self.api_key or not lead.company:
+            return lead
+        try:
+            resp = self.client.post(
+                self.SEARCH_URL,
+                headers={"X-API-KEY": self.api_key, "Content-Type": "application/json"},
+                json={"q": f"{lead.company} official website", "num": 10},
+            )
+            resp.raise_for_status()
+        except httpx.HTTPError:
+            return lead
+        for item in (resp.json() or {}).get("organic", []):
+            domain = _domain_from_url(item.get("link"))
+            if domain and not any(domain == s or domain.endswith("." + s) for s in self._SKIP):
+                return lead.model_copy(update={"domain": domain})
+        return lead
+
+
 class PatternGuessProvider:
     """Last resort: guess first.last@domain from the name (needs a known domain)."""
 

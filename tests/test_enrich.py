@@ -1,6 +1,7 @@
 import httpx
 from founder_bot.enrich import (
-    ApolloProvider, LinkedInScrapeProvider, HunterProvider, PatternGuessProvider, EnrichmentChain,
+    ApolloProvider, LinkedInScrapeProvider, HunterProvider, PatternGuessProvider,
+    CompanyDomainResolver, EnrichmentChain,
 )
 from founder_bot.models import Lead
 
@@ -112,6 +113,39 @@ def test_hunter_no_company_or_domain_unchanged():
     base = Lead(name="Ada Lovelace")
     provider = HunterProvider(api_key="k", client=_client(lambda r: httpx.Response(500)))
     assert provider.fill_email(base).email is None
+
+
+# --- Company domain resolver (Serper) ---
+
+def test_resolver_picks_first_non_aggregator_domain():
+    def handler(request):
+        assert request.url.host == "google.serper.dev"
+        return httpx.Response(200, json={"organic": [
+            {"link": "https://www.linkedin.com/company/karumi"},   # skipped (aggregator)
+            {"link": "https://www.crunchbase.com/organization/karumi"},  # skipped
+            {"link": "https://karumi.ai/about"},                   # real site
+        ]})
+    base = Lead(name="Pablo", company="Karumi (YC F25)")
+    out = CompanyDomainResolver(api_key="k", client=_client(handler)).fill_email(base)
+    assert out.domain == "karumi.ai"
+
+
+def test_resolver_skips_when_domain_already_known():
+    base = Lead(name="Pablo", company="Karumi", domain="known.com")
+    out = CompanyDomainResolver(api_key="k", client=_client(lambda r: httpx.Response(500))).fill_email(base)
+    assert out.domain == "known.com"
+
+
+def test_resolver_no_key_unchanged():
+    base = Lead(name="Pablo", company="Karumi")
+    out = CompanyDomainResolver(api_key=None, client=_client(lambda r: httpx.Response(500))).fill_email(base)
+    assert out.domain is None
+
+
+def test_resolver_never_sets_email():
+    handler = lambda r: httpx.Response(200, json={"organic": [{"link": "https://karumi.ai"}]})
+    out = CompanyDomainResolver(api_key="k", client=_client(handler)).fill_email(Lead(name="P", company="Karumi"))
+    assert out.email is None
 
 
 # --- Pattern guess ---

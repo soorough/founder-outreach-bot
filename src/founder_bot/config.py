@@ -19,6 +19,7 @@ class Settings:
     llm_model: str
     apollo_api_key: Optional[str]
     hunter_api_key: Optional[str]
+    serper_api_key: Optional[str]
     gmail_address: str
     gmail_app_password: str
     kb_dir: str
@@ -33,6 +34,7 @@ class Settings:
             llm_model=os.getenv("LLM_MODEL", "deepseek-chat"),
             apollo_api_key=os.getenv("APOLLO_API_KEY") or None,
             hunter_api_key=os.getenv("HUNTER_API_KEY") or None,
+            serper_api_key=os.getenv("SERPER_API_KEY") or None,
             gmail_address=_require("GMAIL_ADDRESS"),
             gmail_app_password=_require("GMAIL_APP_PASSWORD"),
             kb_dir=os.getenv("KB_DIR", "kb"),

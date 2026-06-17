@@ -6,20 +6,32 @@ from founder_bot.models import Draft, Lead
 _SYSTEM = (
     "You write concise, personalized cold emails for job/role outreach to founders. "
     "Warm, direct, no corporate buzzwords, no flattery padding. 90-150 words. "
-    "Reference something specific about the founder's company. End with a small, low-friction ask. "
+    "End with a small, low-friction ask. "
+    "CRITICAL: never invent facts about the recipient or their company. Only use what "
+    "is given below. If no company context is provided, do not guess what the company "
+    "does — refer to it by name only and focus on the sender's relevant experience. "
     'Return ONLY a JSON object with exactly two string fields: "subject" and "body". '
     "No markdown fences, no commentary, no extra keys."
 )
 
 
 def _build_prompt(lead: Lead, company_context: Optional[str], kb_text: str) -> str:
-    company_block = company_context or "(no company context available)"
+    if company_context:
+        company_block = (
+            f"Company context (use only what's here; reference something specific and real):\n"
+            f"{company_context}"
+        )
+    else:
+        company_block = (
+            "No company context is available. Do NOT invent or guess what the company does "
+            "or builds — refer to it by name only and keep the email about the sender's fit."
+        )
     return (
         f"About me (the sender):\n{kb_text}\n\n"
         f"Recipient: {lead.name}"
         f"{', ' + lead.title if lead.title else ''}"
         f"{' at ' + lead.company if lead.company else ''}.\n\n"
-        f"Company context:\n{company_block}\n\n"
+        f"{company_block}\n\n"
         "Write a cold email from me to this founder as a JSON object with "
         '"subject" and "body".'
     )

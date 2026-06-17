@@ -81,3 +81,12 @@ def test_draft_email_builds_prompt_and_returns_draft():
     assert "Analytical Engines" in prompt
     assert "We build analytical engines." in prompt
     assert "I am Souravh." in prompt
+
+
+def test_no_company_context_instructs_no_fabrication():
+    recorder = {}
+    draft_email(client=_FakeClient(recorder), model="deepseek-chat",
+                lead=Lead(name="Ada", company="Karumi"), company_context=None, kb_text="kb")
+    prompt = recorder["kwargs"]["messages"][1]["content"]
+    assert "No company context is available" in prompt
+    assert "Do NOT invent" in prompt
