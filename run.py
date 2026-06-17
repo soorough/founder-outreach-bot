@@ -1,0 +1,53 @@
+import logging
+
+import httpx
+from anthropic import Anthropic
+from dotenv import load_dotenv
+
+from founder_bot.bot import Bot
+from founder_bot.company import fetch_company_context
+from founder_bot.config import Settings
+from founder_bot.drafter import draft_email
+from founder_bot.enrich import (
+    ApolloProvider, EnrichmentChain, HunterProvider, PatternGuessProvider,
+)
+from founder_bot.gmail_draft import build_service, create_draft
+from founder_bot.kb import load_kb
+from founder_bot.pipeline import Pipeline
+from founder_bot.urls import normalize_linkedin_url
+
+
+def main():
+    logging.basicConfig(level=logging.INFO)
+    load_dotenv()
+    settings = Settings.from_env()
+
+    http = httpx.Client(timeout=20.0)
+    anthropic_client = Anthropic(api_key=settings.anthropic_api_key)
+    gmail_service = build_service(settings.google_token_path)
+
+    chain = EnrichmentChain(
+        apollo=ApolloProvider(settings.apollo_api_key, http),
+        hunter=HunterProvider(settings.hunter_api_key, http),
+        pattern=PatternGuessProvider(),
+    )
+
+    pipeline = Pipeline(
+        normalize=normalize_linkedin_url,
+        enrich=chain.run,
+        fetch_company=lambda domain: fetch_company_context(domain, http),
+        load_kb=lambda: load_kb(settings.kb_dir),
+        draft=lambda lead, ctx, kb: draft_email(anthropic_client, lead, ctx, kb),
+    )
+
+    bot = Bot(
+        owner_id=settings.telegram_owner_id,
+        pipeline=pipeline,
+        create_gmail_draft=lambda email, draft: create_draft(gmail_service, email, draft),
+    )
+    app = bot.build_application(settings.telegram_bot_token)
+    app.run_polling()
+
+
+if __name__ == "__main__":
+    main()
