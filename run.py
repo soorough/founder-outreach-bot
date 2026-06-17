@@ -1,4 +1,10 @@
 import logging
+import os
+import sys
+
+# Make `founder_bot` importable without an editable install (e.g. on Railway,
+# where only requirements.txt deps are installed).
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
 
 import httpx
 from openai import OpenAI
