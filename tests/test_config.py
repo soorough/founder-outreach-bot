@@ -8,6 +8,8 @@ def test_loads_from_env(monkeypatch):
     monkeypatch.setenv("APOLLO_API_KEY", "ap")
     monkeypatch.setenv("HUNTER_API_KEY", "hu")
     monkeypatch.setenv("LLM_API_KEY", "llm")
+    monkeypatch.setenv("GMAIL_ADDRESS", "me@gmail.com")
+    monkeypatch.setenv("GMAIL_APP_PASSWORD", "abcd efgh ijkl mnop")
     monkeypatch.delenv("LLM_BASE_URL", raising=False)
     monkeypatch.delenv("LLM_MODEL", raising=False)
     settings = Settings.from_env()
@@ -17,7 +19,7 @@ def test_loads_from_env(monkeypatch):
     assert settings.llm_api_key == "llm"
     assert settings.llm_base_url == "https://api.deepseek.com"  # default
     assert settings.llm_model == "deepseek-chat"  # default
-    assert settings.google_token_path == "token.json"  # default
+    assert settings.gmail_address == "me@gmail.com"
 
 
 def test_missing_required_raises(monkeypatch):

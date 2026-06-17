@@ -35,9 +35,10 @@ code changes needed.
 
 Copy `.env.example` → `.env` and fill it in. Requires: a Telegram bot token +
 your numeric user ID, an OpenAI-compatible LLM key (DeepSeek or Qwen), Apollo
-(and optionally Hunter) for enrichment, and Google OAuth (`credentials.json` →
-run `python auth_gmail.py` to produce `token.json`) for saving Gmail drafts.
-Then: `pip install -e ".[dev]"`, `python auth_gmail.py`, `python run.py`.
+(and optionally Hunter) for enrichment, and a Gmail address + app password for
+saving drafts over IMAP (turn on 2-Step Verification, enable IMAP, generate a
+16-char app password — no Google Cloud project needed).
+Then: `pip install -e ".[dev]"`, `python run.py`.
 
 ## License
 

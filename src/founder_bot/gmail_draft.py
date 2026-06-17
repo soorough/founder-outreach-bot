@@ -1,31 +1,39 @@
-import base64
+import imaplib
+import time
 from email.message import EmailMessage
 from typing import Optional
 
 from founder_bot.models import Draft
 
+IMAP_HOST = "imap.gmail.com"
+DRAFTS_MAILBOX = "[Gmail]/Drafts"
 
-def create_draft(service, to_email: Optional[str], draft: Draft) -> str:
-    """Create a Gmail draft from a Draft. Returns the created draft id."""
+
+def build_message(to_email: Optional[str], draft: Draft, from_email: Optional[str] = None) -> EmailMessage:
+    """Build a MIME message from a Draft."""
     message = EmailMessage()
     message["Subject"] = draft.subject
+    if from_email:
+        message["From"] = from_email
     if to_email:
         message["To"] = to_email
     message.set_content(draft.body)
-    raw = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
-    created = service.users().drafts().create(
-        userId="me", body={"message": {"raw": raw}}
-    ).execute()
-    return created["id"]
+    return message
 
 
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
+def create_draft(imap, to_email: Optional[str], draft: Draft, from_email: Optional[str] = None) -> None:
+    """Append a draft to the Gmail Drafts folder over IMAP."""
+    message = build_message(to_email, draft, from_email)
+    imap.append(
+        DRAFTS_MAILBOX,
+        "\\Draft",
+        imaplib.Time2Internaldate(time.time()),
+        message.as_bytes(),
+    )
 
-SCOPES = ["https://www.googleapis.com/auth/gmail.compose"]
 
-
-def build_service(token_path: str):
-    """Build an authenticated Gmail service from a token.json produced by auth_gmail.py."""
-    creds = Credentials.from_authorized_user_file(token_path, SCOPES)
-    return build("gmail", "v1", credentials=creds)
+def connect(email_addr: str, app_password: str) -> imaplib.IMAP4_SSL:
+    """Open an authenticated IMAP connection to Gmail using an app password."""
+    imap = imaplib.IMAP4_SSL(IMAP_HOST)
+    imap.login(email_addr, app_password)
+    return imap

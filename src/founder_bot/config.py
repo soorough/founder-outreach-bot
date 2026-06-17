@@ -19,8 +19,8 @@ class Settings:
     llm_model: str
     apollo_api_key: Optional[str]
     hunter_api_key: Optional[str]
-    google_credentials_path: str
-    google_token_path: str
+    gmail_address: str
+    gmail_app_password: str
     kb_dir: str
 
     @classmethod
@@ -33,7 +33,7 @@ class Settings:
             llm_model=os.getenv("LLM_MODEL", "deepseek-chat"),
             apollo_api_key=os.getenv("APOLLO_API_KEY") or None,
             hunter_api_key=os.getenv("HUNTER_API_KEY") or None,
-            google_credentials_path=os.getenv("GOOGLE_CREDENTIALS_PATH", "credentials.json"),
-            google_token_path=os.getenv("GOOGLE_TOKEN_PATH", "token.json"),
+            gmail_address=_require("GMAIL_ADDRESS"),
+            gmail_app_password=_require("GMAIL_APP_PASSWORD"),
             kb_dir=os.getenv("KB_DIR", "kb"),
         )

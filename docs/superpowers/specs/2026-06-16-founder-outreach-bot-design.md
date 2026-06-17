@@ -46,7 +46,7 @@ Telegram (you send a LinkedIn URL)
 Telegram reply: preview + email found + [✅ Save to Gmail] button
         │  (on tap)
         ▼
-[5] gmail    ── create Gmail draft (To: founder email, subject, body)
+[5] gmail    ── append draft to Gmail Drafts over IMAP (To: founder email, subject, body)
 ```
 
 Step 5 is gated behind a confirmation button so bad enrichments never reach the
@@ -64,7 +64,7 @@ Each is a small, independently testable unit with one responsibility.
 | `company.py` | Fetch company site (home/about) + optional recent-news search → short context summary | httpx, optional search API |
 | `kb.py` | Load + concatenate knowledge base markdown into prompt context | local `kb/` files |
 | `drafter.py` | Build prompt from Lead + company context + KB, call the LLM (JSON mode), parse `{subject, body}` | openai SDK (DeepSeek/Qwen base_url) |
-| `gmail.py` | Google OAuth + create draft | google-api-python-client |
+| `gmail_draft.py` | Build MIME + append to Gmail Drafts via IMAP (app password) | stdlib `imaplib` |
 | `config.py` | Load env vars / secrets; no hardcoded paths | — |
 
 ### Data model
@@ -122,14 +122,14 @@ user fills in real details locally.
 | `APOLLO_API_KEY` | Primary enrichment |
 | `HUNTER_API_KEY` | Fallback enrichment |
 | `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | Drafting via OpenAI-compatible API (DeepSeek default; Qwen by changing base_url + model) |
-| `GOOGLE_OAUTH_CLIENT` / token | Gmail draft creation |
+| `GMAIL_ADDRESS` / `GMAIL_APP_PASSWORD` | Gmail draft creation over IMAP (no GCP/OAuth) |
 | `SEARCH_API_KEY` (optional) | Recent-news context |
 
 ## Stack
 
 - Python 3.11+
 - `python-telegram-bot`, `httpx`, `openai` (OpenAI-compatible client for DeepSeek/Qwen),
-  `google-api-python-client`, `google-auth-oauthlib`, `python-dotenv`
+  `pydantic`, `python-dotenv`; Gmail via stdlib `imaplib` (no Google libs)
 - Deploy: Railway/Render (start local, env-var-driven so deploy is trivial)
 
 ## Testing strategy

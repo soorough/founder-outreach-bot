@@ -11,7 +11,7 @@ from founder_bot.drafter import draft_email
 from founder_bot.enrich import (
     ApolloProvider, EnrichmentChain, HunterProvider, PatternGuessProvider,
 )
-from founder_bot.gmail_draft import build_service, create_draft
+from founder_bot.gmail_draft import connect, create_draft
 from founder_bot.kb import load_kb
 from founder_bot.pipeline import Pipeline
 from founder_bot.urls import normalize_linkedin_url
@@ -24,7 +24,16 @@ def main():
 
     http = httpx.Client(timeout=20.0)
     llm_client = OpenAI(api_key=settings.llm_api_key, base_url=settings.llm_base_url)
-    gmail_service = build_service(settings.google_token_path)
+
+    def save_gmail_draft(email, draft):
+        imap = connect(settings.gmail_address, settings.gmail_app_password)
+        try:
+            create_draft(imap, email, draft, from_email=settings.gmail_address)
+        finally:
+            try:
+                imap.logout()
+            except Exception:
+                pass
 
     chain = EnrichmentChain(
         apollo=ApolloProvider(settings.apollo_api_key, http),
@@ -43,7 +52,7 @@ def main():
     bot = Bot(
         owner_id=settings.telegram_owner_id,
         pipeline=pipeline,
-        create_gmail_draft=lambda email, draft: create_draft(gmail_service, email, draft),
+        create_gmail_draft=save_gmail_draft,
     )
     app = bot.build_application(settings.telegram_bot_token)
     app.run_polling()
