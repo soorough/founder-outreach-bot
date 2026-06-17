@@ -245,6 +245,98 @@ class PatternGuessProvider:
         })
 
 
+_FOUNDER_TITLES = (
+    "founder", "co-founder", "cofounder", "ceo", "cto", "coo", "cfo",
+    "chief", "president", "owner", "partner",
+)
+
+
+class EmailVerifier:
+    """Verify an email via Hunter's email-verifier. Sets ``email_status`` and raises
+    confidence to 'high' when the address verifies as valid.
+    """
+
+    BASE = "https://api.hunter.io"
+
+    def __init__(self, api_key: Optional[str], client: httpx.Client):
+        self.api_key = api_key
+        self.client = client
+
+    def verify(self, lead: Lead) -> Lead:
+        if not self.api_key or not lead.email:
+            return lead
+        try:
+            resp = self.client.get(
+                f"{self.BASE}/v2/email-verifier",
+                params={"email": lead.email, "api_key": self.api_key},
+            )
+            resp.raise_for_status()
+        except httpx.HTTPError:
+            return lead
+        data = (resp.json() or {}).get("data") or {}
+        status = data.get("status")
+        if not status:
+            return lead
+        updates: dict = {"email_status": status}
+        if status == "valid":
+            updates["email_confidence"] = "high"
+        elif status in ("invalid", "disposable"):
+            updates["email_confidence"] = "none"
+        return lead.model_copy(update=updates)
+
+
+class TeamFinder:
+    """Find a company's other founders/execs via Hunter domain-search.
+
+    Returns Leads (with email + company + domain) for founder-ish roles, excluding
+    the primary person. Empty for companies Hunter hasn't indexed.
+    """
+
+    BASE = "https://api.hunter.io"
+
+    def __init__(self, api_key: Optional[str], client: httpx.Client, max_people: int = 5):
+        self.api_key = api_key
+        self.client = client
+        self.max_people = max_people
+
+    def find(self, primary: Lead) -> list[Lead]:
+        if not self.api_key or not primary.domain:
+            return []
+        try:
+            resp = self.client.get(
+                f"{self.BASE}/v2/domain-search",
+                params={"domain": primary.domain, "api_key": self.api_key, "limit": 10},
+            )
+            resp.raise_for_status()
+        except httpx.HTTPError:
+            return []
+        data = (resp.json() or {}).get("data") or {}
+        primary_email = (primary.email or "").lower()
+        team: list[Lead] = []
+        for entry in data.get("emails", []):
+            email = entry.get("value")
+            position = (entry.get("position") or "").lower()
+            if not email or email.lower() == primary_email:
+                continue
+            if not any(t in position for t in _FOUNDER_TITLES):
+                continue
+            name = " ".join(p for p in [entry.get("first_name"), entry.get("last_name")] if p)
+            if not name:
+                continue
+            team.append(Lead(
+                name=name,
+                title=entry.get("position"),
+                company=primary.company,
+                domain=primary.domain,
+                email=email,
+                email_confidence="medium",
+                source="hunter",
+            ))
+            if len(team) >= self.max_people:
+                break
+        return team
+
+
 class EnrichmentChain:
     """Identify the person (first identity provider that yields a name wins),
     then fill a missing email through the email fillers in order.

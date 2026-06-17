@@ -1,7 +1,8 @@
 import httpx
 from founder_bot.enrich import (
     ApolloProvider, LinkedInScrapeProvider, HunterProvider, PatternGuessProvider,
-    CompanyDomainResolver, DuckDuckGoDomainResolver, EnrichmentChain,
+    CompanyDomainResolver, DuckDuckGoDomainResolver, EmailVerifier, TeamFinder,
+    EnrichmentChain,
 )
 from founder_bot.models import Lead
 
@@ -185,6 +186,53 @@ def test_pattern_guess_builds_first_last_at_domain():
 
 def test_pattern_guess_no_domain_unchanged():
     assert PatternGuessProvider().fill_email(Lead(name="Ada Lovelace")).email is None
+
+
+# --- Email verifier ---
+
+def test_verifier_valid_sets_status_and_high_confidence():
+    handler = lambda r: httpx.Response(200, json={"data": {"status": "valid", "score": 88}})
+    out = EmailVerifier("k", _client(handler)).verify(Lead(name="P", email="p@k.ai", email_confidence="low"))
+    assert out.email_status == "valid"
+    assert out.email_confidence == "high"
+
+
+def test_verifier_invalid_zeroes_confidence():
+    handler = lambda r: httpx.Response(200, json={"data": {"status": "invalid"}})
+    out = EmailVerifier("k", _client(handler)).verify(Lead(name="P", email="p@k.ai", email_confidence="low"))
+    assert out.email_status == "invalid"
+    assert out.email_confidence == "none"
+
+
+def test_verifier_no_email_unchanged():
+    out = EmailVerifier("k", _client(lambda r: httpx.Response(500))).verify(Lead(name="P"))
+    assert out.email_status is None
+
+
+# --- Team finder ---
+
+def test_team_finder_returns_founders_excluding_primary():
+    def handler(request):
+        assert request.url.path == "/v2/domain-search"
+        return httpx.Response(200, json={"data": {"emails": [
+            {"value": "ada@ae.com", "first_name": "Ada", "last_name": "L", "position": "CEO & Founder"},
+            {"value": "bob@ae.com", "first_name": "Bob", "last_name": "M", "position": "CTO, Co-founder"},
+            {"value": "sue@ae.com", "first_name": "Sue", "last_name": "K", "position": "Sales Rep"},  # not founder
+        ]}})
+    primary = Lead(name="Ada L", domain="ae.com", email="ada@ae.com")
+    team = TeamFinder("k", _client(handler)).find(primary)
+    names = [t.name for t in team]
+    assert names == ["Bob M"]            # Sue excluded (not founder), Ada excluded (primary)
+    assert team[0].email == "bob@ae.com"
+    assert team[0].domain == "ae.com"
+
+
+def test_team_finder_no_domain_returns_empty():
+    assert TeamFinder("k", _client(lambda r: httpx.Response(500))).find(Lead(name="Ada")) == []
+
+
+def test_team_finder_no_key_returns_empty():
+    assert TeamFinder(None, _client(lambda r: httpx.Response(500))).find(Lead(name="Ada", domain="ae.com")) == []
 
 
 # --- Chain ---

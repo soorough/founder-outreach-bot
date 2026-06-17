@@ -9,8 +9,9 @@ from founder_bot.company import fetch_company_context
 from founder_bot.config import Settings
 from founder_bot.drafter import draft_email
 from founder_bot.enrich import (
-    ApolloProvider, CompanyDomainResolver, DuckDuckGoDomainResolver, EnrichmentChain,
-    HunterProvider, LinkedInScrapeProvider, PatternGuessProvider,
+    ApolloProvider, CompanyDomainResolver, DuckDuckGoDomainResolver, EmailVerifier,
+    EnrichmentChain, HunterProvider, LinkedInScrapeProvider, PatternGuessProvider,
+    TeamFinder,
 )
 from founder_bot.gmail_draft import connect, create_draft
 from founder_bot.kb import load_kb
@@ -49,9 +50,14 @@ def main():
         ],
     )
 
+    verifier = EmailVerifier(settings.hunter_api_key, http)
+    team_finder = TeamFinder(settings.hunter_api_key, http)
+
     pipeline = Pipeline(
         normalize=normalize_linkedin_url,
         enrich=chain.run,
+        verify_email=verifier.verify,
+        find_team=team_finder.find,
         fetch_company=lambda domain: fetch_company_context(domain, http),
         load_kb=lambda: load_kb(settings.kb_dir),
         draft=lambda lead, ctx, kb: draft_email(llm_client, settings.llm_model, lead, ctx, kb),

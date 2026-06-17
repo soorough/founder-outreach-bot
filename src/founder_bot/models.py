@@ -12,6 +12,7 @@ class Lead(BaseModel):
     domain: Optional[str] = None
     email: Optional[str] = None
     email_confidence: Confidence = "none"
+    email_status: Optional[str] = None  # Hunter verifier: valid | invalid | accept_all | unknown ...
     source: Optional[Source] = None
 
 
