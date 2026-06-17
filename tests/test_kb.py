@@ -21,3 +21,11 @@ def test_missing_files_are_skipped(tmp_path):
     text = load_kb(str(tmp_path))
     assert "Only profile." in text
     assert "# proof" not in text
+
+
+def test_local_file_overrides_template(tmp_path):
+    (tmp_path / "profile.md").write_text("Template profile.")
+    (tmp_path / "profile.local.md").write_text("Real private profile.")
+    text = load_kb(str(tmp_path))
+    assert "Real private profile." in text
+    assert "Template profile." not in text

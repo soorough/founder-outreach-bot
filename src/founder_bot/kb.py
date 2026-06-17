@@ -4,10 +4,16 @@ _FILES = ["profile.md", "proof.md", "reviews.md", "angles.md"]
 
 
 def load_kb(kb_dir: str) -> str:
-    """Concatenate known knowledge-base markdown files into one prompt-ready string."""
+    """Concatenate knowledge-base markdown into one prompt-ready string.
+
+    For each section, a gitignored ``<name>.local.md`` (your real, private
+    content) takes precedence over the committed ``<name>.md`` template.
+    """
     parts: list[str] = []
     for filename in _FILES:
-        path = os.path.join(kb_dir, filename)
+        base, ext = os.path.splitext(filename)
+        local = os.path.join(kb_dir, f"{base}.local{ext}")
+        path = local if os.path.isfile(local) else os.path.join(kb_dir, filename)
         if not os.path.isfile(path):
             continue
         with open(path, "r", encoding="utf-8") as handle:
