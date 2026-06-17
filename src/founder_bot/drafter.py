@@ -1,3 +1,4 @@
+import re
 from typing import Optional
 
 from founder_bot.models import Draft, Lead
@@ -34,12 +35,15 @@ def draft_email(
     """
     response = client.chat.completions.create(
         model=model,
-        max_tokens=1024,
+        max_tokens=2048,
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": _SYSTEM},
             {"role": "user", "content": _build_prompt(lead, company_context, kb_text)},
         ],
     )
-    content = response.choices[0].message.content
-    return Draft.model_validate_json(content)
+    content = response.choices[0].message.content or ""
+    # Tolerate code fences / stray prose by extracting the JSON object.
+    match = re.search(r"\{.*\}", content, re.DOTALL)
+    payload = match.group(0) if match else content
+    return Draft.model_validate_json(payload)

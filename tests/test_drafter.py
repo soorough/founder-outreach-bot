@@ -32,6 +32,31 @@ class _FakeClient:
         self.chat = _FakeChat(recorder)
 
 
+class _FencedMessage:
+    content = '```json\n{"subject": "S", "body": "B"}\n```'
+
+
+class _FencedResponse:
+    choices = [type("C", (), {"message": _FencedMessage()})()]
+
+
+class _FencedCompletions:
+    def create(self, **kwargs):
+        return _FencedResponse()
+
+
+class _FencedClient:
+    def __init__(self):
+        self.chat = type("Chat", (), {"completions": _FencedCompletions()})()
+
+
+def test_draft_email_tolerates_code_fences():
+    draft = draft_email(client=_FencedClient(), model="deepseek-chat",
+                        lead=Lead(name="Ada"), company_context=None, kb_text="kb")
+    assert draft.subject == "S"
+    assert draft.body == "B"
+
+
 def test_draft_email_builds_prompt_and_returns_draft():
     recorder = {}
     client = _FakeClient(recorder)
