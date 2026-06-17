@@ -26,10 +26,22 @@ from founder_bot.urls import normalize_linkedin_url
 
 
 def _load_resume(settings, http):
-    """Load the resume PDF to attach: from RESUME_PATH (local) or RESUME_URL (hosted)."""
-    if settings.resume_path and os.path.isfile(settings.resume_path):
-        with open(settings.resume_path, "rb") as handle:
-            return (os.path.basename(settings.resume_path), handle.read())
+    """Load the resume PDF to attach: from RESUME_PATH (local) or RESUME_URL (hosted).
+
+    A relative RESUME_PATH is resolved against both the working directory and this
+    script's directory (the repo root), so it works regardless of where the host
+    launches the process from.
+    """
+    if settings.resume_path:
+        here = os.path.dirname(os.path.abspath(__file__))
+        candidates = [settings.resume_path]
+        if not os.path.isabs(settings.resume_path):
+            candidates.append(os.path.join(here, settings.resume_path))
+        for candidate in candidates:
+            if os.path.isfile(candidate):
+                with open(candidate, "rb") as handle:
+                    return (os.path.basename(candidate), handle.read())
+        logging.warning("RESUME_PATH set but file not found: %s", settings.resume_path)
     if settings.resume_url:
         try:
             resp = http.get(settings.resume_url, follow_redirects=True)
