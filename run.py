@@ -9,7 +9,8 @@ from founder_bot.company import fetch_company_context
 from founder_bot.config import Settings
 from founder_bot.drafter import draft_email
 from founder_bot.enrich import (
-    ApolloProvider, EnrichmentChain, HunterProvider, PatternGuessProvider,
+    ApolloProvider, EnrichmentChain, HunterProvider, LinkedInScrapeProvider,
+    PatternGuessProvider,
 )
 from founder_bot.gmail_draft import connect, create_draft
 from founder_bot.kb import load_kb
@@ -36,9 +37,14 @@ def main():
                 pass
 
     chain = EnrichmentChain(
-        apollo=ApolloProvider(settings.apollo_api_key, http),
-        hunter=HunterProvider(settings.hunter_api_key, http),
-        pattern=PatternGuessProvider(),
+        identity_providers=[
+            ApolloProvider(settings.apollo_api_key, http),  # paid; no-ops without a working key
+            LinkedInScrapeProvider(http),                   # free fallback: name + company from meta tags
+        ],
+        email_fillers=[
+            HunterProvider(settings.hunter_api_key, http),
+            PatternGuessProvider(),
+        ],
     )
 
     pipeline = Pipeline(

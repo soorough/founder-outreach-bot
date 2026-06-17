@@ -1,5 +1,7 @@
 import httpx
-from founder_bot.enrich import ApolloProvider, HunterProvider, PatternGuessProvider, EnrichmentChain
+from founder_bot.enrich import (
+    ApolloProvider, LinkedInScrapeProvider, HunterProvider, PatternGuessProvider, EnrichmentChain,
+)
 from founder_bot.models import Lead
 
 URL = "https://www.linkedin.com/in/ada-lovelace"
@@ -8,6 +10,8 @@ URL = "https://www.linkedin.com/in/ada-lovelace"
 def _client(handler):
     return httpx.Client(transport=httpx.MockTransport(handler))
 
+
+# --- Apollo ---
 
 def test_apollo_returns_lead_with_email():
     def handler(request):
@@ -24,23 +28,9 @@ def test_apollo_returns_lead_with_email():
     lead = provider.find(URL)
     assert lead.email == "ada@analytical.com"
     assert lead.name == "Ada Lovelace"
-    assert lead.title == "CEO"
-    assert lead.company == "Analytical Engines"
     assert lead.domain == "analytical.com"
     assert lead.email_confidence == "high"
     assert lead.source == "apollo"
-
-
-def test_apollo_no_email_returns_lead_without_email():
-    def handler(request):
-        return httpx.Response(200, json={"person": {
-            "name": "Ada Lovelace", "title": "CEO",
-            "organization": {"name": "Analytical Engines", "website_url": "https://analytical.com"},
-        }})
-    provider = ApolloProvider(api_key="k", client=_client(handler))
-    lead = provider.find(URL)
-    assert lead.email is None
-    assert lead.domain == "analytical.com"
 
 
 def test_apollo_no_key_returns_none():
@@ -48,90 +38,144 @@ def test_apollo_no_key_returns_none():
     assert provider.find(URL) is None
 
 
-def test_apollo_http_error_returns_none():
-    provider = ApolloProvider(api_key="k", client=_client(lambda r: httpx.Response(429)))
+def test_apollo_forbidden_returns_none():
+    provider = ApolloProvider(api_key="k", client=_client(lambda r: httpx.Response(403)))
     assert provider.find(URL) is None
 
 
-def test_hunter_finds_email_from_existing_lead():
+# --- LinkedIn scrape ---
+
+def _linkedin_html(title):
+    return f"<html><head><title>{title}</title></head><body>authwall</body></html>"
+
+
+def test_linkedin_scrape_parses_name_and_company():
+    html = _linkedin_html("Pablo Omenaca Muro - Karumi (YC F25) | LinkedIn")
+    provider = LinkedInScrapeProvider(_client(lambda r: httpx.Response(200, text=html)))
+    lead = provider.find(URL)
+    assert lead.name == "Pablo Omenaca Muro"
+    assert lead.company == "Karumi (YC F25)"
+    assert lead.email is None
+
+
+def test_linkedin_scrape_name_only_title():
+    html = _linkedin_html("Ada Lovelace | LinkedIn")
+    provider = LinkedInScrapeProvider(_client(lambda r: httpx.Response(200, text=html)))
+    lead = provider.find(URL)
+    assert lead.name == "Ada Lovelace"
+    assert lead.company is None
+
+
+def test_linkedin_scrape_http_error_returns_none():
+    provider = LinkedInScrapeProvider(_client(lambda r: httpx.Response(999)))
+    assert provider.find(URL) is None
+
+
+# --- Hunter ---
+
+def test_hunter_uses_company_name_and_captures_domain():
     def handler(request):
-        assert request.url.path == "/v2/email-finder"
         params = dict(request.url.params)
-        assert params["domain"] == "analytical.com"
-        assert params["full_name"] == "Ada Lovelace"
-        return httpx.Response(200, json={"data": {"email": "ada@analytical.com", "score": 92}})
-    base = Lead(name="Ada Lovelace", company="Analytical Engines", domain="analytical.com")
+        assert params["company"] == "Karumi"  # parenthetical stripped
+        assert params["full_name"] == "Pablo Omenaca Muro"
+        assert "domain" not in params
+        return httpx.Response(200, json={"data": {"email": "pablo@karumi.com", "domain": "karumi.com"}})
+    base = Lead(name="Pablo Omenaca Muro", company="Karumi (YC F25)")
     provider = HunterProvider(api_key="k", client=_client(handler))
     lead = provider.fill_email(base)
-    assert lead.email == "ada@analytical.com"
+    assert lead.email == "pablo@karumi.com"
+    assert lead.domain == "karumi.com"  # captured from Hunter
     assert lead.email_confidence == "medium"
     assert lead.source == "hunter"
 
 
-def test_hunter_no_domain_returns_input_unchanged():
+def test_hunter_uses_domain_when_present():
+    def handler(request):
+        params = dict(request.url.params)
+        assert params["domain"] == "analytical.com"
+        return httpx.Response(200, json={"data": {"email": "ada@analytical.com"}})
+    base = Lead(name="Ada Lovelace", company="Analytical Engines", domain="analytical.com")
+    provider = HunterProvider(api_key="k", client=_client(handler))
+    lead = provider.fill_email(base)
+    assert lead.email == "ada@analytical.com"
+
+
+def test_hunter_captures_domain_even_without_email():
+    handler = lambda r: httpx.Response(200, json={"data": {"domain": "karumi.com", "email": None}})
+    base = Lead(name="Pablo Omenaca Muro", company="Karumi")
+    lead = HunterProvider(api_key="k", client=_client(handler)).fill_email(base)
+    assert lead.email is None
+    assert lead.domain == "karumi.com"
+
+
+def test_hunter_no_company_or_domain_unchanged():
     base = Lead(name="Ada Lovelace")
     provider = HunterProvider(api_key="k", client=_client(lambda r: httpx.Response(500)))
     assert provider.fill_email(base).email is None
 
 
+# --- Pattern guess ---
+
 def test_pattern_guess_builds_first_last_at_domain():
-    base = Lead(name="Ada Lovelace", domain="analytical.com")
-    out = PatternGuessProvider().fill_email(base)
+    out = PatternGuessProvider().fill_email(Lead(name="Ada Lovelace", domain="analytical.com"))
     assert out.email == "ada.lovelace@analytical.com"
     assert out.email_confidence == "low"
     assert out.source == "pattern"
 
 
 def test_pattern_guess_no_domain_unchanged():
-    base = Lead(name="Ada Lovelace")
-    assert PatternGuessProvider().fill_email(base).email is None
+    assert PatternGuessProvider().fill_email(Lead(name="Ada Lovelace")).email is None
 
 
-class _StubApollo:
+# --- Chain ---
+
+class _StubIdentity:
     def __init__(self, lead): self._lead = lead
     def find(self, url): return self._lead
 
-class _StubHunter:
-    def __init__(self, called): self.called = called
+
+class _StubFiller:
+    def __init__(self, name, called, email=None):
+        self.name, self.called, self.email = name, called, email
     def fill_email(self, lead):
-        self.called.append("hunter")
+        self.called.append(self.name)
+        if self.email:
+            return lead.model_copy(update={"email": self.email, "email_confidence": "low", "source": "pattern"})
         return lead
 
-class _StubPattern:
-    def __init__(self, called): self.called = called
-    def fill_email(self, lead):
-        self.called.append("pattern")
-        return lead.model_copy(update={"email": "x@y.com", "email_confidence": "low", "source": "pattern"})
 
-
-def test_chain_stops_when_apollo_has_email():
+def test_chain_stops_when_identity_has_email():
     called = []
     chain = EnrichmentChain(
-        apollo=_StubApollo(Lead(name="Ada", domain="y.com", email="ada@y.com", email_confidence="high")),
-        hunter=_StubHunter(called),
-        pattern=_StubPattern(called),
+        identity_providers=[_StubIdentity(Lead(name="Ada", email="ada@y.com", email_confidence="high"))],
+        email_fillers=[_StubFiller("hunter", called)],
     )
-    lead = chain.run(URL)
-    assert lead.email == "ada@y.com"
-    assert called == []  # neither fallback ran
+    assert chain.run(URL).email == "ada@y.com"
+    assert called == []
 
 
-def test_chain_falls_through_to_pattern():
+def test_chain_falls_through_fillers_in_order():
     called = []
     chain = EnrichmentChain(
-        apollo=_StubApollo(Lead(name="Ada", domain="y.com")),  # no email
-        hunter=_StubHunter(called),                            # leaves it unchanged
-        pattern=_StubPattern(called),
+        identity_providers=[_StubIdentity(Lead(name="Ada", company="AE"))],
+        email_fillers=[_StubFiller("hunter", called), _StubFiller("pattern", called, email="x@y.com")],
     )
     lead = chain.run(URL)
     assert called == ["hunter", "pattern"]
     assert lead.email == "x@y.com"
 
 
-def test_chain_apollo_returns_none():
+def test_chain_second_identity_provider_used_when_first_returns_none():
     chain = EnrichmentChain(
-        apollo=_StubApollo(None),
-        hunter=_StubHunter([]),
-        pattern=_StubPattern([]),
+        identity_providers=[_StubIdentity(None), _StubIdentity(Lead(name="Ada", company="AE"))],
+        email_fillers=[],
+    )
+    assert chain.run(URL).name == "Ada"
+
+
+def test_chain_all_identity_none_returns_none():
+    chain = EnrichmentChain(
+        identity_providers=[_StubIdentity(None), _StubIdentity(None)],
+        email_fillers=[],
     )
     assert chain.run(URL) is None

@@ -31,7 +31,8 @@ Single Python service deployed on a cheap cloud host (Railway/Render).
 Telegram (you send a LinkedIn URL)
         │
         ▼
-[1] enrich   ── Apollo → Hunter → pattern-guess+verify ──► Lead{name,title,company,domain,email,confidence}
+[1] enrich   ── identity: Apollo (paid) → LinkedIn meta-tag scrape (free)
+             ── email:    Hunter (by domain or company name) → pattern-guess ──► Lead{name,company,domain,email,confidence}
         │
         ▼
 [2] company  ── scrape company site (home/about) + optional recent-news search ──► company context summary
@@ -60,7 +61,7 @@ Each is a small, independently testable unit with one responsibility.
 |--------|---------------|------------|
 | `bot.py` | Telegram handlers, button callback, orchestration, replies; whitelist on owner Telegram user ID | `pipeline` |
 | `pipeline.py` | Run steps in order, per-step error handling, assemble a `Result` | all below |
-| `enrich.py` | Adapter chain `ApolloProvider → HunterProvider → PatternGuessProvider`. Each implements `find(linkedin_url) -> Lead | None`; chain stops at first provider returning a usable email | Apollo/Hunter APIs |
+| `enrich.py` | Identity providers (`ApolloProvider` paid, `LinkedInScrapeProvider` free) + email fillers (`HunterProvider`, `PatternGuessProvider`), composed by `EnrichmentChain`. First identity provider yielding a name wins; fillers run until an email is found. Hunter accepts a company name (not just a domain) and captures the resolved domain | Apollo/Hunter APIs, LinkedIn public meta tags |
 | `company.py` | Fetch company site (home/about) + optional recent-news search → short context summary | httpx, optional search API |
 | `kb.py` | Load + concatenate knowledge base markdown into prompt context | local `kb/` files |
 | `drafter.py` | Build prompt from Lead + company context + KB, call the LLM (JSON mode), parse `{subject, body}` | openai SDK (DeepSeek/Qwen base_url) |

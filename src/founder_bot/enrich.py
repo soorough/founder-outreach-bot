@@ -1,9 +1,15 @@
+import re
 from typing import Optional, Protocol
 from urllib.parse import urlparse
 
 import httpx
 
 from founder_bot.models import Lead
+
+_BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
 
 
 def _domain_from_url(url: Optional[str]) -> Optional[str]:
@@ -14,13 +20,26 @@ def _domain_from_url(url: Optional[str]) -> Optional[str]:
     return host.replace("www.", "").strip("/") or None
 
 
-class Provider(Protocol):
+def _clean_company(company: str) -> str:
+    """Strip parentheticals like '(YC F25)' for a cleaner company-name lookup."""
+    return re.sub(r"\s*\(.*?\)\s*", " ", company).strip()
+
+
+class IdentityProvider(Protocol):
     def find(self, linkedin_url: str) -> Optional[Lead]:
         ...
 
 
+class EmailFiller(Protocol):
+    def fill_email(self, lead: Lead) -> Lead:
+        ...
+
+
 class ApolloProvider:
-    """Primary enrichment via Apollo people-match. Returns a Lead (email optional) or None."""
+    """Paid identity provider: Apollo people-match (LinkedIn URL → person + email).
+
+    Returns None on free plans (403) or any error, letting the chain fall through.
+    """
 
     BASE = "https://api.apollo.io"
 
@@ -53,12 +72,54 @@ class ApolloProvider:
             domain=domain,
             email=email,
             email_confidence="high" if email else "none",
-            source="apollo",
+            source="apollo" if email else None,
         )
 
 
+class LinkedInScrapeProvider:
+    """Free identity provider: read name + current company from a public LinkedIn
+    profile's SEO meta tags (works around the authwall, which still exposes them).
+
+    Best-effort and unofficial — LinkedIn may change markup or rate-limit.
+    """
+
+    _TITLE = re.compile(r"<title>(.*?)</title>", re.IGNORECASE | re.DOTALL)
+
+    def __init__(self, client: httpx.Client):
+        self.client = client
+
+    def find(self, linkedin_url: str) -> Optional[Lead]:
+        try:
+            resp = self.client.get(
+                linkedin_url, follow_redirects=True, headers={"User-Agent": _BROWSER_UA}
+            )
+            resp.raise_for_status()
+        except httpx.HTTPError:
+            return None
+        match = self._TITLE.search(resp.text)
+        if not match:
+            return None
+        # Title looks like "Name - Company | LinkedIn" (or "Name | LinkedIn").
+        title = re.sub(r"\s+", " ", match.group(1)).strip()
+        title = re.sub(r"\s*\|\s*LinkedIn.*$", "", title, flags=re.IGNORECASE).strip()
+        if not title:
+            return None
+        if " - " in title:
+            name, company = title.split(" - ", 1)
+            company = company.strip() or None
+        else:
+            name, company = title, None
+        name = name.strip()
+        if not name:
+            return None
+        return Lead(name=name, company=company)
+
+
 class HunterProvider:
-    """Fallback: given a Lead with name + domain, find the email via Hunter."""
+    """Fallback email finder. Uses the company domain if known, otherwise the
+    company name (Hunter resolves the domain itself). Captures the resolved
+    domain back onto the Lead even when no email is found.
+    """
 
     BASE = "https://api.hunter.io"
 
@@ -67,29 +128,32 @@ class HunterProvider:
         self.client = client
 
     def fill_email(self, lead: Lead) -> Lead:
-        if not self.api_key or not lead.domain or not lead.name:
+        if not self.api_key or not lead.name:
+            return lead
+        params = {"full_name": lead.name, "api_key": self.api_key}
+        if lead.domain:
+            params["domain"] = lead.domain
+        elif lead.company:
+            params["company"] = _clean_company(lead.company)
+        else:
             return lead
         try:
-            resp = self.client.get(
-                f"{self.BASE}/v2/email-finder",
-                params={"domain": lead.domain, "full_name": lead.name, "api_key": self.api_key},
-            )
+            resp = self.client.get(f"{self.BASE}/v2/email-finder", params=params)
             resp.raise_for_status()
         except httpx.HTTPError:
             return lead
         data = (resp.json() or {}).get("data") or {}
+        updates: dict = {}
+        if data.get("domain") and not lead.domain:
+            updates["domain"] = data["domain"]
         email = data.get("email")
-        if not email:
-            return lead
-        return lead.model_copy(update={
-            "email": email,
-            "email_confidence": "medium",
-            "source": "hunter",
-        })
+        if email:
+            updates.update({"email": email, "email_confidence": "medium", "source": "hunter"})
+        return lead.model_copy(update=updates) if updates else lead
 
 
 class PatternGuessProvider:
-    """Last resort: guess first.last@domain from the name."""
+    """Last resort: guess first.last@domain from the name (needs a known domain)."""
 
     def fill_email(self, lead: Lead) -> Lead:
         if not lead.domain or not lead.name:
@@ -106,20 +170,26 @@ class PatternGuessProvider:
 
 
 class EnrichmentChain:
-    """Apollo identifies the person; Hunter then pattern-guess fill a missing email."""
+    """Identify the person (first identity provider that yields a name wins),
+    then fill a missing email through the email fillers in order.
+    """
 
-    def __init__(self, apollo, hunter, pattern):
-        self.apollo = apollo
-        self.hunter = hunter
-        self.pattern = pattern
+    def __init__(self, identity_providers: list, email_fillers: list):
+        self.identity_providers = identity_providers
+        self.email_fillers = email_fillers
 
     def run(self, linkedin_url: str) -> Optional[Lead]:
-        lead = self.apollo.find(linkedin_url)
+        lead: Optional[Lead] = None
+        for provider in self.identity_providers:
+            lead = provider.find(linkedin_url)
+            if lead and lead.name:
+                break
         if lead is None:
             return None
         if lead.email:
             return lead
-        lead = self.hunter.fill_email(lead)
-        if lead.email:
-            return lead
-        return self.pattern.fill_email(lead)
+        for filler in self.email_fillers:
+            lead = filler.fill_email(lead)
+            if lead.email:
+                return lead
+        return lead
