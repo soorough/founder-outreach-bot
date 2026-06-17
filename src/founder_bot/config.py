@@ -3,6 +3,14 @@ from dataclasses import dataclass
 from typing import Optional
 
 
+DEFAULT_FOOTER = (
+    "Souravh Pateriya\n"
+    "Portfolio: https://sourav.live | GitHub: https://github.com/soorough | "
+    "LinkedIn: https://www.linkedin.com/in/souravhpateriya\n"
+    "souravhpateriyad04@gmail.com"
+)
+
+
 def _require(name: str) -> str:
     value = os.getenv(name)
     if not value:
@@ -24,6 +32,9 @@ class Settings:
     gmail_app_password: str
     kb_dir: str
     kb_text: Optional[str]  # if set (e.g. on Railway), used instead of kb/ files
+    email_footer: str
+    resume_path: Optional[str]  # local PDF to attach to every draft
+    resume_url: Optional[str]   # or a hosted PDF URL (for cloud deploys)
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -40,4 +51,7 @@ class Settings:
             gmail_app_password=_require("GMAIL_APP_PASSWORD"),
             kb_dir=os.getenv("KB_DIR", "kb"),
             kb_text=os.getenv("KB_TEXT") or None,
+            email_footer=os.getenv("EMAIL_FOOTER") or DEFAULT_FOOTER,
+            resume_path=os.getenv("RESUME_PATH") or None,
+            resume_url=os.getenv("RESUME_URL") or None,
         )

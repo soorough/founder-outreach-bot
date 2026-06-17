@@ -22,6 +22,7 @@ class Pipeline:
         fetch_company: Callable[[Optional[str]], Optional[str]],
         load_kb: Callable[[], str],
         draft: Callable[[Lead, Optional[str], str], Draft],
+        signature: str = "",
     ):
         self.normalize = normalize
         self.enrich = enrich
@@ -30,6 +31,7 @@ class Pipeline:
         self.fetch_company = fetch_company
         self.load_kb = load_kb
         self.draft = draft
+        self.signature = signature
 
     def run(self, raw_url: str) -> list[Result]:
         url = self.normalize(raw_url)
@@ -62,4 +64,6 @@ class Pipeline:
         if is_primary and company_context is None:
             warnings.append("Limited company context — drafted from profile + your knowledge base only.")
         draft = self.draft(lead, company_context, kb_text)
+        if self.signature:
+            draft = draft.model_copy(update={"body": f"{draft.body}\n\n{self.signature}"})
         return Result(lead=lead, company_context=company_context, draft=draft, warnings=warnings)

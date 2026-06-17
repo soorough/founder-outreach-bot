@@ -8,9 +8,17 @@ from founder_bot.models import Draft
 IMAP_HOST = "imap.gmail.com"
 DRAFTS_MAILBOX = "[Gmail]/Drafts"
 
+# Attachment = (filename, raw_bytes); attached as application/pdf.
+Attachment = tuple[str, bytes]
 
-def build_message(to_email: Optional[str], draft: Draft, from_email: Optional[str] = None) -> EmailMessage:
-    """Build a MIME message from a Draft."""
+
+def build_message(
+    to_email: Optional[str],
+    draft: Draft,
+    from_email: Optional[str] = None,
+    attachment: Optional[Attachment] = None,
+) -> EmailMessage:
+    """Build a MIME message from a Draft, optionally with a PDF attachment."""
     message = EmailMessage()
     message["Subject"] = draft.subject
     if from_email:
@@ -18,12 +26,21 @@ def build_message(to_email: Optional[str], draft: Draft, from_email: Optional[st
     if to_email:
         message["To"] = to_email
     message.set_content(draft.body)
+    if attachment:
+        filename, data = attachment
+        message.add_attachment(data, maintype="application", subtype="pdf", filename=filename)
     return message
 
 
-def create_draft(imap, to_email: Optional[str], draft: Draft, from_email: Optional[str] = None) -> None:
+def create_draft(
+    imap,
+    to_email: Optional[str],
+    draft: Draft,
+    from_email: Optional[str] = None,
+    attachment: Optional[Attachment] = None,
+) -> None:
     """Append a draft to the Gmail Drafts folder over IMAP."""
-    message = build_message(to_email, draft, from_email)
+    message = build_message(to_email, draft, from_email, attachment)
     imap.append(
         DRAFTS_MAILBOX,
         "\\Draft",

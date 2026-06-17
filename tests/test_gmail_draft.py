@@ -2,6 +2,21 @@ from founder_bot.gmail_draft import build_message, create_draft, DRAFTS_MAILBOX
 from founder_bot.models import Draft
 
 
+def test_build_message_attaches_pdf():
+    msg = build_message("a@b.com", Draft(subject="S", body="B"),
+                        attachment=("resume.pdf", b"%PDF-1.4 fake"))
+    parts = list(msg.iter_attachments())
+    assert len(parts) == 1
+    assert parts[0].get_filename() == "resume.pdf"
+    assert parts[0].get_content_type() == "application/pdf"
+    assert parts[0].get_payload(decode=True) == b"%PDF-1.4 fake"
+
+
+def test_build_message_no_attachment_has_none():
+    msg = build_message("a@b.com", Draft(subject="S", body="B"))
+    assert list(msg.iter_attachments()) == []
+
+
 class _FakeImap:
     def __init__(self):
         self.calls = []

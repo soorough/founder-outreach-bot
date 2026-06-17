@@ -25,6 +25,25 @@ from founder_bot.pipeline import Pipeline
 from founder_bot.urls import normalize_linkedin_url
 
 
+def _load_resume(settings, http):
+    """Load the resume PDF to attach: from RESUME_PATH (local) or RESUME_URL (hosted)."""
+    if settings.resume_path and os.path.isfile(settings.resume_path):
+        with open(settings.resume_path, "rb") as handle:
+            return (os.path.basename(settings.resume_path), handle.read())
+    if settings.resume_url:
+        try:
+            resp = http.get(settings.resume_url, follow_redirects=True)
+            resp.raise_for_status()
+        except httpx.HTTPError:
+            logging.warning("Could not download resume from RESUME_URL")
+            return None
+        name = settings.resume_url.rstrip("/").split("/")[-1] or "resume.pdf"
+        if not name.lower().endswith(".pdf"):
+            name += ".pdf"
+        return (name, resp.content)
+    return None
+
+
 def main():
     logging.basicConfig(level=logging.INFO)
     load_dotenv()
@@ -36,7 +55,7 @@ def main():
     def save_gmail_draft(email, draft):
         imap = connect(settings.gmail_address, settings.gmail_app_password)
         try:
-            create_draft(imap, email, draft, from_email=settings.gmail_address)
+            create_draft(imap, email, draft, from_email=settings.gmail_address, attachment=resume)
         finally:
             try:
                 imap.logout()
@@ -58,6 +77,11 @@ def main():
 
     verifier = EmailVerifier(settings.hunter_api_key, http)
     team_finder = TeamFinder(settings.hunter_api_key, http)
+    resume = _load_resume(settings, http)
+    if resume:
+        logging.info("Attaching resume to drafts: %s", resume[0])
+    else:
+        logging.info("No resume configured (set RESUME_PATH or RESUME_URL to attach one).")
 
     pipeline = Pipeline(
         normalize=normalize_linkedin_url,
@@ -67,6 +91,7 @@ def main():
         fetch_company=lambda domain: fetch_company_context(domain, http),
         load_kb=lambda: settings.kb_text or load_kb(settings.kb_dir),
         draft=lambda lead, ctx, kb: draft_email(llm_client, settings.llm_model, lead, ctx, kb),
+        signature=settings.email_footer,
     )
 
     bot = Bot(

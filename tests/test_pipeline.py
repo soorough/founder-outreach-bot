@@ -13,9 +13,16 @@ def _pipeline(**overrides):
         fetch_company=lambda domain: "We build engines.",
         load_kb=lambda: "# profile\nMe.",
         draft=lambda lead, ctx, kb: Draft(subject=f"S-{lead.name}", body="B"),
+        signature="",
     )
     defaults.update(overrides)
     return Pipeline(**defaults)
+
+
+def test_signature_footer_appended_to_body():
+    results = _pipeline(signature="Souravh\nsourav.live").run("https://linkedin.com/in/ada")
+    assert results[0].draft.body.endswith("Souravh\nsourav.live")
+    assert results[0].draft.body.startswith("B")
 
 
 def test_happy_path_returns_single_primary_result():
