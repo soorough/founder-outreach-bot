@@ -25,12 +25,17 @@ def _clean_company(company: str) -> str:
     return re.sub(r"\s*\(.*?\)\s*", " ", company).strip()
 
 
-# Domains that are directories/socials, never a company's own site.
+# Domains that are directories/socials/job-boards, never a company's own site.
 _AGGREGATORS = {
     "linkedin.com", "crunchbase.com", "twitter.com", "x.com", "facebook.com",
     "instagram.com", "wikipedia.org", "bloomberg.com", "github.com", "medium.com",
     "youtube.com", "pitchbook.com", "tracxn.com", "glassdoor.com", "ycombinator.com",
     "duckduckgo.com", "reddit.com", "producthunt.com",
+    # Startup directories / job boards / data brokers — list the company but aren't it.
+    "wellfound.com", "angel.co", "angellist.com", "f6s.com", "builtin.com",
+    "lever.co", "greenhouse.io", "ashbyhq.com", "workable.com", "indeed.com",
+    "levels.fyi", "getlatka.com", "cbinsights.com", "owler.com", "zoominfo.com",
+    "rocketreach.co", "apollo.io", "signalhire.com", "theorg.com", "contactout.com",
 }
 
 
@@ -38,6 +43,25 @@ def _is_company_domain(domain: Optional[str]) -> bool:
     return bool(domain) and not any(
         domain == s or domain.endswith("." + s) for s in _AGGREGATORS
     )
+
+
+def _best_company_domain(domains: list, company: Optional[str]) -> Optional[str]:
+    """From candidate domains (in result-rank order), pick the company's real site.
+
+    Skips aggregators, then prefers a domain whose host shares a token with the
+    company name (e.g. company "Revley" → "revley.io" over a generic first hit),
+    falling back to the highest-ranked non-aggregator domain.
+    """
+    candidates = [d for d in domains if _is_company_domain(d)]
+    if not candidates:
+        return None
+    slug = re.sub(r"[^a-z0-9]", "", (company or "").lower())
+    if slug:
+        for d in candidates:
+            core = d.rsplit(".", 1)[0].replace(".", "")  # host without TLD
+            if core and (core in slug or slug in core):
+                return d
+    return candidates[0]
 
 
 def _parse_linkedin_title(raw_title: str) -> Optional[tuple[str, Optional[str]]]:
@@ -271,11 +295,9 @@ class CompanyDomainResolver:
             resp.raise_for_status()
         except httpx.HTTPError:
             return lead
-        for item in (resp.json() or {}).get("organic", []):
-            domain = _domain_from_url(item.get("link"))
-            if _is_company_domain(domain):
-                return lead.model_copy(update={"domain": domain})
-        return lead
+        domains = [_domain_from_url(i.get("link")) for i in (resp.json() or {}).get("organic", [])]
+        best = _best_company_domain([d for d in domains if d], lead.company)
+        return lead.model_copy(update={"domain": best}) if best else lead
 
 
 class DuckDuckGoDomainResolver:
@@ -301,11 +323,9 @@ class DuckDuckGoDomainResolver:
             resp.raise_for_status()
         except httpx.HTTPError:
             return lead
-        for match in self._HREF.finditer(resp.text):
-            domain = _domain_from_url(match.group(1))
-            if _is_company_domain(domain):
-                return lead.model_copy(update={"domain": domain})
-        return lead
+        domains = [_domain_from_url(m.group(1)) for m in self._HREF.finditer(resp.text)]
+        best = _best_company_domain([d for d in domains if d], lead.company)
+        return lead.model_copy(update={"domain": best}) if best else lead
 
 
 class PatternGuessProvider:

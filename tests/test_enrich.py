@@ -182,6 +182,30 @@ def test_resolver_picks_first_non_aggregator_domain():
     assert out.domain == "karumi.ai"
 
 
+def test_resolver_skips_wellfound_and_prefers_name_match():
+    # Revley's Wellfound listing ranks first, but it's a directory; the real
+    # name-matching site (revley.io) should win.
+    def handler(request):
+        return httpx.Response(200, json={"organic": [
+            {"link": "https://wellfound.com/company/revley"},   # directory, skipped
+            {"link": "https://news.example.com/revley-raises"}, # generic, no name match
+            {"link": "https://revley.io/about"},                # real site, name match
+        ]})
+    out = CompanyDomainResolver(api_key="k", client=_client(handler)).fill_email(
+        Lead(name="Lang Li", company="Revley")
+    )
+    assert out.domain == "revley.io"
+
+
+def test_resolver_falls_back_to_first_when_no_name_match():
+    handler = lambda r: httpx.Response(200, json={"organic": [
+        {"link": "https://getsomeapp.com"}, {"link": "https://another.com"}]})
+    out = CompanyDomainResolver(api_key="k", client=_client(handler)).fill_email(
+        Lead(name="X", company="Acme")
+    )
+    assert out.domain == "getsomeapp.com"
+
+
 def test_resolver_skips_when_domain_already_known():
     base = Lead(name="Pablo", company="Karumi", domain="known.com")
     out = CompanyDomainResolver(api_key="k", client=_client(lambda r: httpx.Response(500))).fill_email(base)
