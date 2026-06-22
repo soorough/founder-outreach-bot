@@ -328,18 +328,62 @@ class DuckDuckGoDomainResolver:
         return lead.model_copy(update={"domain": best}) if best else lead
 
 
+def _email_candidates(name: Optional[str], domain: Optional[str]) -> list:
+    """Common corporate email local-parts for a name @ domain, ordered roughly by
+    real-world frequency (first.last most common). Deduped, preserving order.
+    """
+    if not domain or not name:
+        return []
+    parts = [p for p in name.lower().split() if p.isalpha()]
+    if not parts:
+        return []
+    first, last = parts[0], parts[-1]
+    if len(parts) >= 2:
+        fi, li = first[0], last[0]
+        locals_ = [
+            f"{first}.{last}", first, f"{fi}{last}", f"{first}{last}",
+            f"{first}_{last}", last, f"{fi}.{last}", f"{first}{li}",
+            f"{last}.{first}", f"{last}{first}",
+        ]
+    else:
+        locals_ = [first]
+    seen, out = set(), []
+    for local in locals_:
+        email = f"{local}@{domain}"
+        if email not in seen:
+            seen.add(email)
+            out.append(email)
+    return out
+
+
 class PatternGuessProvider:
-    """Last resort: guess first.last@domain from the name (needs a known domain)."""
+    """Last resort: guess the email from the name + known domain.
+
+    With a ``verify`` callable (email → status), it tries common patterns
+    (first.last, first, flast, firstlast, …) and keeps the first that verifies
+    'valid'. Without one — or if none verify — it falls back to the most common
+    pattern (first.last) at low confidence.
+    """
+
+    def __init__(self, verify=None, max_checks: int = 8):
+        self.verify = verify  # callable(email) -> status str | None
+        self.max_checks = max_checks
 
     def fill_email(self, lead: Lead) -> Lead:
-        if not lead.domain or not lead.name:
+        candidates = _email_candidates(lead.name, lead.domain)
+        if not candidates:
             return lead
-        parts = [p for p in lead.name.lower().split() if p.isalpha()]
-        if len(parts) < 2:
-            return lead
-        guess = f"{parts[0]}.{parts[-1]}@{lead.domain}"
+        if self.verify:
+            for candidate in candidates[: self.max_checks]:
+                if self.verify(candidate) == "valid":
+                    return lead.model_copy(update={
+                        "email": candidate,
+                        "email_confidence": "high",
+                        "email_status": "valid",
+                        "source": "pattern",
+                    })
         return lead.model_copy(update={
-            "email": guess,
+            "email": candidates[0],
             "email_confidence": "low",
             "source": "pattern",
         })
@@ -362,19 +406,28 @@ class EmailVerifier:
         self.api_key = api_key
         self.client = client
 
-    def verify(self, lead: Lead) -> Lead:
-        if not self.api_key or not lead.email:
-            return lead
+    def status_of(self, email: Optional[str]) -> Optional[str]:
+        """Hunter email-verifier status for one address (valid/invalid/accept_all/…),
+        or None on no key / error. Shared by ``verify`` and pattern-guess checks.
+        """
+        if not self.api_key or not email:
+            return None
         try:
             resp = self.client.get(
                 f"{self.BASE}/v2/email-verifier",
-                params={"email": lead.email, "api_key": self.api_key},
+                params={"email": email, "api_key": self.api_key},
             )
             resp.raise_for_status()
         except httpx.HTTPError:
+            return None
+        return ((resp.json() or {}).get("data") or {}).get("status")
+
+    def verify(self, lead: Lead) -> Lead:
+        # Skip if there's nothing to check or it was already verified upstream
+        # (e.g. pattern-guess that verified its own pick) — saves a Hunter call.
+        if not lead.email or lead.email_status:
             return lead
-        data = (resp.json() or {}).get("data") or {}
-        status = data.get("status")
+        status = self.status_of(lead.email)
         if not status:
             return lead
         updates: dict = {"email_status": status}

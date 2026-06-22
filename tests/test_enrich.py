@@ -263,6 +263,46 @@ def test_pattern_guess_no_domain_unchanged():
     assert PatternGuessProvider().fill_email(Lead(name="Ada Lovelace")).email is None
 
 
+def test_pattern_tries_combos_and_keeps_first_valid():
+    # Only "flast" (alovelace@) verifies valid; provider must land on it.
+    def verify(email):
+        return "valid" if email == "alovelace@analytical.com" else "invalid"
+    out = PatternGuessProvider(verify=verify).fill_email(
+        Lead(name="Ada Lovelace", domain="analytical.com")
+    )
+    assert out.email == "alovelace@analytical.com"
+    assert out.email_confidence == "high"
+    assert out.email_status == "valid"
+
+
+def test_pattern_stops_checking_after_first_valid():
+    calls = []
+    def verify(email):
+        calls.append(email)
+        return "valid"  # first candidate already valid
+    PatternGuessProvider(verify=verify).fill_email(Lead(name="Ada Lovelace", domain="a.com"))
+    assert len(calls) == 1  # stopped immediately
+
+
+def test_pattern_no_valid_falls_back_to_top_guess():
+    out = PatternGuessProvider(verify=lambda e: "invalid").fill_email(
+        Lead(name="Ada Lovelace", domain="a.com")
+    )
+    assert out.email == "ada.lovelace@a.com"  # most-common pattern
+    assert out.email_confidence == "low"
+
+
+def test_pattern_respects_max_checks():
+    calls = []
+    def verify(email):
+        calls.append(email)
+        return "unknown"
+    PatternGuessProvider(verify=verify, max_checks=3).fill_email(
+        Lead(name="Ada Lovelace", domain="a.com")
+    )
+    assert len(calls) == 3
+
+
 # --- Email verifier ---
 
 def test_verifier_valid_sets_status_and_high_confidence():

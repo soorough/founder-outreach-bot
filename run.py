@@ -80,6 +80,9 @@ def main():
             except Exception:
                 pass
 
+    verifier = EmailVerifier(settings.hunter_api_key, http)
+    team_finder = TeamFinder(settings.hunter_api_key, http)
+
     chain = EnrichmentChain(
         identity_providers=[
             ApolloProvider(settings.apollo_api_key, http),        # paid; no-ops without a working key
@@ -91,12 +94,10 @@ def main():
             CompanyDomainResolver(settings.serper_api_key, http),  # real domain (Serper, if key)
             DuckDuckGoDomainResolver(http),                        # real domain (keyless fallback)
             HunterProvider(settings.hunter_api_key, http),
-            PatternGuessProvider(),
+            # Verify each name-pattern guess; keep the first that comes back valid.
+            PatternGuessProvider(verify=verifier.status_of),
         ],
     )
-
-    verifier = EmailVerifier(settings.hunter_api_key, http)
-    team_finder = TeamFinder(settings.hunter_api_key, http)
     resume = _load_resume(settings, http)
     if resume:
         logging.info("Attaching resume to drafts: %s", resume[0])
