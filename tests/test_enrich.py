@@ -2,7 +2,7 @@ import httpx
 from founder_bot.enrich import (
     ApolloProvider, LinkedInScrapeProvider, HunterProvider, PatternGuessProvider,
     CompanyDomainResolver, DuckDuckGoDomainResolver, EmailVerifier, TeamFinder,
-    EnrichmentChain,
+    EnrichmentChain, SerperIdentityProvider, SlugNameProvider,
 )
 from founder_bot.models import Lead
 
@@ -71,6 +71,57 @@ def test_linkedin_scrape_name_only_title():
 def test_linkedin_scrape_http_error_returns_none():
     provider = LinkedInScrapeProvider(_client(lambda r: httpx.Response(999)))
     assert provider.find(URL) is None
+
+
+# --- Serper identity (robust against the 999 block) ---
+
+def test_serper_identity_parses_name_and_company_from_indexed_title():
+    def handler(request):
+        assert request.url.host == "google.serper.dev"
+        assert "lang-li-7a193a328" in request.read().decode()
+        return httpx.Response(200, json={"organic": [
+            {"title": "Some Article", "link": "https://example.com/x"},
+            {"title": "Lang Li - Acme Robotics | LinkedIn",
+             "link": "https://www.linkedin.com/in/lang-li-7a193a328"},
+        ]})
+    provider = SerperIdentityProvider(api_key="k", client=_client(handler))
+    lead = provider.find("https://www.linkedin.com/in/lang-li-7a193a328/")
+    assert lead.name == "Lang Li"
+    assert lead.company == "Acme Robotics"
+    assert lead.email is None
+
+
+def test_serper_identity_no_key_returns_none():
+    provider = SerperIdentityProvider(api_key=None, client=_client(lambda r: httpx.Response(500)))
+    assert provider.find(URL) is None
+
+
+def test_serper_identity_http_error_returns_none():
+    provider = SerperIdentityProvider(api_key="k", client=_client(lambda r: httpx.Response(429)))
+    assert provider.find(URL) is None
+
+
+def test_serper_identity_no_linkedin_result_returns_none():
+    handler = lambda r: httpx.Response(200, json={"organic": [
+        {"title": "Unrelated", "link": "https://example.com"}]})
+    assert SerperIdentityProvider(api_key="k", client=_client(handler)).find(URL) is None
+
+
+# --- Slug name (last resort) ---
+
+def test_slug_name_drops_hash_and_titlecases():
+    lead = SlugNameProvider().find("https://www.linkedin.com/in/lang-li-7a193a328/")
+    assert lead.name == "Lang Li"
+    assert lead.company is None
+
+
+def test_slug_name_clean_vanity_slug():
+    lead = SlugNameProvider().find("https://www.linkedin.com/in/pablo-omenaca-muro?utm_source=share")
+    assert lead.name == "Pablo Omenaca Muro"
+
+
+def test_slug_name_no_alpha_tokens_returns_none():
+    assert SlugNameProvider().find("https://www.linkedin.com/in/12345/") is None
 
 
 # --- Hunter ---

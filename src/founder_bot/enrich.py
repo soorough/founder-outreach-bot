@@ -40,6 +40,43 @@ def _is_company_domain(domain: Optional[str]) -> bool:
     )
 
 
+def _parse_linkedin_title(raw_title: str) -> Optional[tuple[str, Optional[str]]]:
+    """Parse a LinkedIn page/result title into (name, company).
+
+    Titles look like "Name - Company | LinkedIn" (or "Name | LinkedIn"). Returns
+    None if no name can be extracted. Shared by the direct scraper and the
+    search-engine identity provider, which both see the same indexed title.
+    """
+    title = re.sub(r"\s+", " ", raw_title).strip()
+    title = re.sub(r"\s*\|\s*LinkedIn.*$", "", title, flags=re.IGNORECASE).strip()
+    if not title or title.lower() == "linkedin":
+        return None
+    if " - " in title:
+        name, company = title.split(" - ", 1)
+        company = company.strip() or None
+    else:
+        name, company = title, None
+    name = name.strip()
+    if not name:
+        return None
+    return name, company
+
+
+def _name_from_linkedin_url(linkedin_url: str) -> Optional[str]:
+    """Derive a person's name from the profile slug, e.g.
+    ``/in/lang-li-7a193a328`` → "Lang Li". Drops the trailing unique-id hash and
+    any digit-bearing tokens. Last-resort identity when nothing else works.
+    """
+    path = urlparse(linkedin_url).path
+    match = re.search(r"/in/([^/?#]+)", path)
+    if not match:
+        return None
+    tokens = [t for t in match.group(1).split("-") if t.isalpha()]
+    if not tokens:
+        return None
+    return " ".join(t.capitalize() for t in tokens)
+
+
 class IdentityProvider(Protocol):
     def find(self, linkedin_url: str) -> Optional[Lead]:
         ...
@@ -114,20 +151,63 @@ class LinkedInScrapeProvider:
         match = self._TITLE.search(resp.text)
         if not match:
             return None
-        # Title looks like "Name - Company | LinkedIn" (or "Name | LinkedIn").
-        title = re.sub(r"\s+", " ", match.group(1)).strip()
-        title = re.sub(r"\s*\|\s*LinkedIn.*$", "", title, flags=re.IGNORECASE).strip()
-        if not title:
+        parsed = _parse_linkedin_title(match.group(1))
+        if not parsed:
             return None
-        if " - " in title:
-            name, company = title.split(" - ", 1)
-            company = company.strip() or None
-        else:
-            name, company = title, None
-        name = name.strip()
-        if not name:
-            return None
+        name, company = parsed
         return Lead(name=name, company=company)
+
+
+class SerperIdentityProvider:
+    """Identity via Serper (Google) search — robust against LinkedIn's 999 block.
+
+    Searches for the profile URL and reads the indexed "Name - Company | LinkedIn"
+    title from the organic result that points back at this profile. No-ops without
+    a key (Serper free tier: ~2,500 queries/month).
+    """
+
+    SEARCH_URL = "https://google.serper.dev/search"
+
+    def __init__(self, api_key: Optional[str], client: httpx.Client):
+        self.api_key = api_key
+        self.client = client
+
+    def find(self, linkedin_url: str) -> Optional[Lead]:
+        if not self.api_key:
+            return None
+        slug = ""
+        match = re.search(r"/in/([^/?#]+)", urlparse(linkedin_url).path)
+        if match:
+            slug = match.group(1)
+        try:
+            resp = self.client.post(
+                self.SEARCH_URL,
+                headers={"X-API-KEY": self.api_key, "Content-Type": "application/json"},
+                json={"q": f"{slug} site:linkedin.com/in", "num": 10},
+            )
+            resp.raise_for_status()
+        except httpx.HTTPError:
+            return None
+        organic = (resp.json() or {}).get("organic", [])
+        # Prefer the result whose link is this exact profile; else first /in/ result.
+        candidates = [i for i in organic if slug and slug in (i.get("link") or "")]
+        candidates += [i for i in organic if "/in/" in (i.get("link") or "")]
+        for item in candidates:
+            parsed = _parse_linkedin_title(item.get("title") or "")
+            if parsed:
+                name, company = parsed
+                return Lead(name=name, company=company)
+        return None
+
+
+class SlugNameProvider:
+    """Last-resort identity: derive the name from the profile URL slug. Always
+    yields a name (no company), so the pipeline can still draft something.
+    """
+
+    def find(self, linkedin_url: str) -> Optional[Lead]:
+        name = _name_from_linkedin_url(linkedin_url)
+        return Lead(name=name) if name else None
 
 
 class HunterProvider:

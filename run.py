@@ -17,7 +17,7 @@ from founder_bot.drafter import draft_email
 from founder_bot.enrich import (
     ApolloProvider, CompanyDomainResolver, DuckDuckGoDomainResolver, EmailVerifier,
     EnrichmentChain, HunterProvider, LinkedInScrapeProvider, PatternGuessProvider,
-    TeamFinder,
+    SerperIdentityProvider, SlugNameProvider, TeamFinder,
 )
 from founder_bot.gmail_draft import connect, create_draft
 from founder_bot.kb import load_kb
@@ -82,8 +82,10 @@ def main():
 
     chain = EnrichmentChain(
         identity_providers=[
-            ApolloProvider(settings.apollo_api_key, http),  # paid; no-ops without a working key
-            LinkedInScrapeProvider(http),                   # free fallback: name + company from meta tags
+            ApolloProvider(settings.apollo_api_key, http),        # paid; no-ops without a working key
+            LinkedInScrapeProvider(http),                         # free: name + company from meta tags (fails on 999 block)
+            SerperIdentityProvider(settings.serper_api_key, http),# robust: reads indexed LinkedIn title via Google
+            SlugNameProvider(),                                   # last resort: name from URL slug (no company)
         ],
         email_fillers=[
             CompanyDomainResolver(settings.serper_api_key, http),  # real domain (Serper, if key)
