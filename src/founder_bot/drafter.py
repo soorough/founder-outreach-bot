@@ -1,3 +1,4 @@
+import json
 import re
 from typing import Optional
 
@@ -39,13 +40,41 @@ def _build_prompt(lead: Lead, company_context: Optional[str], kb_text: str) -> s
     )
 
 
+def _parse_draft_payload(content: str) -> Draft:
+    """Parse a Draft from the model's text, tolerating its common malformations:
+    code fences, trailing prose, and — the recurring DeepSeek bug — a dropped
+    closing brace (or a body truncated before its closing quote). Repairs the
+    JSON rather than failing the whole request.
+    """
+    text = content.strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text).strip()
+    start = text.find("{")
+    if start == -1:
+        raise ValueError("No JSON object found in model output.")
+    text = text[start:]
+
+    decoder = json.JSONDecoder()
+    # First a clean decode (raw_decode also ignores any trailing prose); then
+    # try minimal repairs for a truncated tail: close the object, then close an
+    # unterminated string before closing the object.
+    for suffix in ("", "}", '"}'):
+        try:
+            data, _ = decoder.raw_decode(text + suffix)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict) and data.get("body"):
+            return Draft(subject=data.get("subject") or "Quick note", body=data["body"])
+    raise ValueError("Could not parse a draft from model output.")
+
+
 def draft_email(
     client, model: str, lead: Lead, company_context: Optional[str], kb_text: str
 ) -> Draft:
     """Call an OpenAI-compatible chat model (DeepSeek/Qwen) and return a Draft.
 
-    Uses JSON-object response mode and validates the content into a Draft.
-    Raises on API or parse error (caller handles).
+    Uses JSON-object response mode and tolerantly parses the content into a
+    Draft. Raises on API or unrecoverable parse error (caller handles).
     """
     response = client.chat.completions.create(
         model=model,
@@ -57,7 +86,4 @@ def draft_email(
         ],
     )
     content = response.choices[0].message.content or ""
-    # Tolerate code fences / stray prose by extracting the JSON object.
-    match = re.search(r"\{.*\}", content, re.DOTALL)
-    payload = match.group(0) if match else content
-    return Draft.model_validate_json(payload)
+    return _parse_draft_payload(content)

@@ -1,5 +1,43 @@
-from founder_bot.drafter import draft_email
+import pytest
+
+from founder_bot.drafter import draft_email, _parse_draft_payload
 from founder_bot.models import Lead, Draft
+
+
+# --- tolerant JSON parsing (handles DeepSeek's occasional malformed output) ---
+
+def test_parse_plain_object():
+    d = _parse_draft_payload('{"subject": "S", "body": "B"}')
+    assert (d.subject, d.body) == ("S", "B")
+
+
+def test_parse_strips_code_fences():
+    d = _parse_draft_payload('```json\n{"subject": "S", "body": "B"}\n```')
+    assert (d.subject, d.body) == ("S", "B")
+
+
+def test_parse_repairs_missing_closing_brace():
+    # Body string is closed, but the final } was dropped (the reported bug).
+    d = _parse_draft_payload('{"subject": "2x founder", "body": "Hi Lang,\\n\\nBest,\\nSouravh"')
+    assert d.subject == "2x founder"
+    assert d.body.endswith("Best,\nSouravh")
+
+
+def test_parse_repairs_truncated_mid_body():
+    # Truncated before the body's closing quote — keep what we have.
+    d = _parse_draft_payload('{"subject": "Hi", "body": "Hello there')
+    assert d.subject == "Hi"
+    assert "Hello there" in d.body
+
+
+def test_parse_ignores_trailing_prose():
+    d = _parse_draft_payload('{"subject": "S", "body": "B"}\n\nHope that helps!')
+    assert (d.subject, d.body) == ("S", "B")
+
+
+def test_parse_unrecoverable_raises():
+    with pytest.raises(ValueError):
+        _parse_draft_payload("totally not json and no braces at all")
 
 
 class _Message:
