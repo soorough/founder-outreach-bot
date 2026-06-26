@@ -292,6 +292,42 @@ def test_pattern_no_valid_falls_back_to_top_guess():
     assert out.email_confidence == "low"
 
 
+def test_pattern_verifies_existing_email_first_and_keeps_source():
+    calls = []
+    def verify(email):
+        calls.append(email)
+        return "valid" if email == "found@ae.com" else "invalid"
+    out = PatternGuessProvider(verify=verify).fill_email(
+        Lead(name="Ada Lovelace", domain="ae.com", email="found@ae.com",
+             email_confidence="medium", source="hunter")
+    )
+    assert calls[0] == "found@ae.com"        # checked the existing email first
+    assert out.email == "found@ae.com"
+    assert out.email_confidence == "high"
+    assert out.source == "hunter"            # not overwritten to 'pattern'
+
+
+def test_pattern_upgrades_bad_email_to_verified_combo():
+    def verify(email):
+        return "valid" if email == "alovelace@ae.com" else "invalid"
+    out = PatternGuessProvider(verify=verify).fill_email(
+        Lead(name="Ada Lovelace", domain="ae.com", email="wrong@ae.com",
+             email_confidence="low", source="hunter")
+    )
+    assert out.email == "alovelace@ae.com"
+    assert out.email_confidence == "high"
+    assert out.source == "pattern"           # a guessed combo replaced the bad find
+
+
+def test_pattern_keeps_existing_email_when_nothing_verifies():
+    out = PatternGuessProvider(verify=lambda e: "invalid").fill_email(
+        Lead(name="Ada Lovelace", domain="ae.com", email="found@ae.com",
+             email_confidence="medium", source="hunter")
+    )
+    assert out.email == "found@ae.com"       # not downgraded to a guess
+    assert out.email_confidence == "medium"
+
+
 def test_pattern_respects_max_checks():
     calls = []
     def verify(email):
@@ -358,12 +394,13 @@ class _StubIdentity:
 
 
 class _StubFiller:
-    def __init__(self, name, called, email=None):
-        self.name, self.called, self.email = name, called, email
+    def __init__(self, name, called, email=None, confidence="low"):
+        self.name, self.called, self.email, self.confidence = name, called, email, confidence
     def fill_email(self, lead):
         self.called.append(self.name)
         if self.email:
-            return lead.model_copy(update={"email": self.email, "email_confidence": "low", "source": "pattern"})
+            return lead.model_copy(update={
+                "email": self.email, "email_confidence": self.confidence, "source": "pattern"})
         return lead
 
 
@@ -386,6 +423,37 @@ def test_chain_falls_through_fillers_in_order():
     lead = chain.run(URL)
     assert called == ["hunter", "pattern"]
     assert lead.email == "x@y.com"
+
+
+def test_chain_continues_past_low_confidence_email_until_high():
+    # A low/medium email must NOT short-circuit the chain — later fillers
+    # (the pattern verifier) get a chance to upgrade it.
+    called = []
+    chain = EnrichmentChain(
+        identity_providers=[_StubIdentity(Lead(name="Ada", company="AE"))],
+        email_fillers=[
+            _StubFiller("hunter", called, email="ada@guess.com"),                  # low
+            _StubFiller("pattern", called, email="ada@ae.com", confidence="high"), # verified
+        ],
+    )
+    lead = chain.run(URL)
+    assert called == ["hunter", "pattern"]   # did not stop at hunter's low-confidence email
+    assert lead.email == "ada@ae.com"
+    assert lead.email_confidence == "high"
+
+
+def test_chain_stops_at_first_high_confidence_email():
+    called = []
+    chain = EnrichmentChain(
+        identity_providers=[_StubIdentity(Lead(name="Ada", company="AE"))],
+        email_fillers=[
+            _StubFiller("hunter", called, email="ada@ae.com", confidence="high"),
+            _StubFiller("pattern", called, email="x@y.com"),
+        ],
+    )
+    lead = chain.run(URL)
+    assert called == ["hunter"]              # stopped once we had a verified email
+    assert lead.email == "ada@ae.com"
 
 
 def test_chain_second_identity_provider_used_when_first_returns_none():

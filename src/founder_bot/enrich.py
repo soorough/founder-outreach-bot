@@ -371,17 +371,25 @@ class PatternGuessProvider:
 
     def fill_email(self, lead: Lead) -> Lead:
         candidates = _email_candidates(lead.name, lead.domain)
-        if not candidates:
-            return lead
+        # Verify any already-found email first (cheap, often correct), then the
+        # name patterns. This is what lets the verifier "kick in" to upgrade a
+        # low/medium email rather than just filling a missing one.
+        ordered = ([lead.email] if lead.email else []) + [c for c in candidates if c != lead.email]
         if self.verify:
-            for candidate in candidates[: self.max_checks]:
+            for candidate in ordered[: self.max_checks]:
                 if self.verify(candidate) == "valid":
-                    return lead.model_copy(update={
+                    updates = {
                         "email": candidate,
                         "email_confidence": "high",
                         "email_status": "valid",
-                        "source": "pattern",
-                    })
+                    }
+                    if candidate != lead.email:  # keep the original source if it was already this email
+                        updates["source"] = "pattern"
+                    return lead.model_copy(update=updates)
+        if lead.email:
+            return lead  # nothing verified valid — keep the real find, don't downgrade it
+        if not candidates:
+            return lead
         return lead.model_copy(update={
             "email": candidates[0],
             "email_confidence": "low",
@@ -499,6 +507,14 @@ class EnrichmentChain:
         self.identity_providers = identity_providers
         self.email_fillers = email_fillers
 
+    @staticmethod
+    def _is_confident(lead: Optional[Lead]) -> bool:
+        """A verified-valid (high-confidence) email — the only reason to stop early.
+        A low/medium email keeps the chain going so later fillers (e.g. the
+        name-pattern verifier) can try to upgrade it.
+        """
+        return bool(lead and lead.email) and lead.email_confidence == "high"
+
     def run(self, linkedin_url: str) -> Optional[Lead]:
         lead: Optional[Lead] = None
         for provider in self.identity_providers:
@@ -507,10 +523,10 @@ class EnrichmentChain:
                 break
         if lead is None:
             return None
-        if lead.email:
+        if self._is_confident(lead):
             return lead
         for filler in self.email_fillers:
             lead = filler.fill_email(lead)
-            if lead.email:
+            if self._is_confident(lead):
                 return lead
         return lead
