@@ -40,31 +40,59 @@ def _build_prompt(lead: Lead, company_context: Optional[str], kb_text: str) -> s
     )
 
 
+def _unescape(s: str) -> str:
+    """Apply the JSON string escapes we care about (used by the regex fallback)."""
+    for esc, char in (("\\n", "\n"), ("\\t", "\t"), ("\\r", "\r"),
+                      ('\\"', '"'), ("\\/", "/"), ("\\\\", "\\")):
+        s = s.replace(esc, char)
+    return s
+
+
+def _extract_field(text: str, key: str) -> Optional[str]:
+    """Pull a string field out of malformed JSON (e.g. unescaped inner quotes).
+    'subject' stops at the next unescaped quote; 'body' runs to the end and trims
+    a trailing closing quote/brace.
+    """
+    match = re.search(rf'"{key}"\s*:\s*"', text)
+    if not match:
+        return None
+    rest = text[match.end():]
+    if key == "body":
+        rest = re.sub(r'"\s*}?\s*$', "", rest)
+    else:
+        end = re.search(r'(?<!\\)"', rest)
+        rest = rest[: end.start()] if end else rest
+    return _unescape(rest.strip()) or None
+
+
 def _parse_draft_payload(content: str) -> Draft:
     """Parse a Draft from the model's text, tolerating its common malformations:
-    code fences, trailing prose, and — the recurring DeepSeek bug — a dropped
-    closing brace (or a body truncated before its closing quote). Repairs the
-    JSON rather than failing the whole request.
+    code fences, trailing prose, a dropped closing brace, a body truncated before
+    its closing quote, literal newlines in strings, and unescaped inner quotes.
+    Repairs/salvages rather than failing the whole request.
     """
     text = content.strip()
     text = re.sub(r"^```(?:json)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text).strip()
     start = text.find("{")
-    if start == -1:
-        raise ValueError("No JSON object found in model output.")
-    text = text[start:]
+    if start != -1:
+        text = text[start:]
+        # strict=False tolerates literal control chars (newlines/tabs) in strings.
+        decoder = json.JSONDecoder(strict=False)
+        # Clean decode (raw_decode also ignores trailing prose); then repair a
+        # truncated tail — close the object, then close an unterminated string.
+        for suffix in ("", "}", '"}'):
+            try:
+                data, _ = decoder.raw_decode(text + suffix)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(data, dict) and data.get("body"):
+                return Draft(subject=data.get("subject") or "Quick note", body=data["body"])
 
-    decoder = json.JSONDecoder()
-    # First a clean decode (raw_decode also ignores any trailing prose); then
-    # try minimal repairs for a truncated tail: close the object, then close an
-    # unterminated string before closing the object.
-    for suffix in ("", "}", '"}'):
-        try:
-            data, _ = decoder.raw_decode(text + suffix)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(data, dict) and data.get("body"):
-            return Draft(subject=data.get("subject") or "Quick note", body=data["body"])
+    # Last resort: pull the fields out directly (handles unescaped inner quotes).
+    body = _extract_field(text, "body")
+    if body:
+        return Draft(subject=_extract_field(text, "subject") or "Quick note", body=body)
     raise ValueError("Could not parse a draft from model output.")
 
 

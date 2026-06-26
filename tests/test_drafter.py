@@ -35,6 +35,22 @@ def test_parse_ignores_trailing_prose():
     assert (d.subject, d.body) == ("S", "B")
 
 
+def test_parse_allows_literal_newlines_in_body():
+    # DeepSeek occasionally emits real newlines inside the string (invalid in
+    # strict JSON) instead of escaped \\n.
+    d = _parse_draft_payload('{"subject": "S", "body": "Hi Oleh,\n\nBest,\nSouravh"}')
+    assert d.subject == "S"
+    assert "Hi Oleh," in d.body and "Souravh" in d.body
+
+
+def test_parse_recovers_body_with_unescaped_inner_quotes():
+    # An unescaped " inside the body makes the JSON unrecoverable; salvage it.
+    content = '{"subject": "Idea", "body": "I build "agentic" systems for you"}'
+    d = _parse_draft_payload(content)
+    assert d.subject == "Idea"
+    assert "agentic" in d.body
+
+
 def test_parse_unrecoverable_raises():
     with pytest.raises(ValueError):
         _parse_draft_payload("totally not json and no braces at all")
