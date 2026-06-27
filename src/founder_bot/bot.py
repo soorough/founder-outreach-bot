@@ -1,4 +1,5 @@
 import logging
+from uuid import uuid4
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
@@ -9,6 +10,9 @@ from founder_bot.models import Result
 from founder_bot.pipeline import InvalidUrlError
 
 logger = logging.getLogger(__name__)
+
+# Cap on retained pending drafts so the store can't grow without bound.
+_MAX_PENDING = 1000
 
 
 def _format_preview(result: Result, label: str, signature: str = "") -> str:
@@ -30,8 +34,9 @@ def _format_preview(result: Result, label: str, signature: str = "") -> str:
 
 
 class Bot:
-    """Telegram wiring. Owns the pipeline + gmail-draft creator; holds the per-chat
-    list of drafted Results so each can be saved by index.
+    """Telegram wiring. Owns the pipeline + gmail-draft creator; holds drafted
+    Results keyed by a unique per-draft token so each Save button maps to exactly
+    one draft (sending more URLs never clobbers earlier drafts' Save buttons).
     """
 
     def __init__(self, owner_id: int, pipeline, create_gmail_draft, signature: str = ""):
@@ -39,7 +44,14 @@ class Bot:
         self.pipeline = pipeline
         self.create_gmail_draft = create_gmail_draft
         self.signature = signature
-        self._pending: dict[int, list[Result]] = {}
+        self._pending: dict[str, Result] = {}
+
+    def _store(self, result: Result) -> str:
+        token = uuid4().hex
+        self._pending[token] = result
+        while len(self._pending) > _MAX_PENDING:
+            self._pending.pop(next(iter(self._pending)))  # evict oldest
+        return token
 
     async def handle_url(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if update.effective_user.id != self.owner_id:
@@ -56,11 +68,11 @@ class Bot:
             await update.message.reply_text(f"❌ Something went wrong: {exc}")
             return
 
-        self._pending[chat_id] = results
         for index, result in enumerate(results):
             label = "Primary" if index == 0 else f"Co-founder {index}"
+            token = self._store(result)
             keyboard = InlineKeyboardMarkup(
-                [[InlineKeyboardButton("✅ Save to Gmail", callback_data=f"save:{index}")]]
+                [[InlineKeyboardButton("✅ Save to Gmail", callback_data=f"save:{token}")]]
             )
             await update.message.reply_text(
                 _format_preview(result, label, self.signature),
@@ -76,15 +88,11 @@ class Bot:
         await query.answer()
         if query.from_user.id != self.owner_id:
             return
-        try:
-            index = int((query.data or "").split(":", 1)[1])
-        except (IndexError, ValueError):
-            index = -1
-        results = self._pending.get(query.message.chat_id) or []
-        if not 0 <= index < len(results):
+        token = (query.data or "").split(":", 1)[-1]
+        result = self._pending.get(token)
+        if result is None:
             await query.edit_message_text("Nothing to save (expired).")
             return
-        result = results[index]
         try:
             self.create_gmail_draft(result.lead.email, result.draft)
         except Exception as exc:
