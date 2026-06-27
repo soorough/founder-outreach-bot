@@ -1,7 +1,26 @@
 import asyncio
 
-from founder_bot.bot import Bot
+from founder_bot.bot import Bot, _format_preview
 from founder_bot.models import Draft, Lead, Result
+
+
+def test_preview_lists_alternatives_when_present():
+    result = Result(
+        lead=Lead(name="Ada", domain="ae.com", email="ada.lovelace@ae.com",
+                  email_confidence="low", email_alternatives=["ada@ae.com", "alovelace@ae.com"]),
+        draft=Draft(subject="S", body="B"),
+    )
+    text = _format_preview(result, "Primary")
+    assert "ada.lovelace@ae.com (low)" in text
+    assert "Also try:" in text and "ada@ae.com" in text
+
+
+def test_preview_omits_alternatives_when_none():
+    result = Result(
+        lead=Lead(name="Ada", email="ada@ae.com", email_confidence="high"),
+        draft=Draft(subject="S", body="B"),
+    )
+    assert "Also try:" not in _format_preview(result, "Primary")
 
 
 class _FakeMessage:

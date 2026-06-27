@@ -369,6 +369,9 @@ class PatternGuessProvider:
         self.verify = verify  # callable(email) -> status str | None
         self.max_checks = max_checks
 
+    #: how many extra patterns to surface alongside an unverified guess
+    MAX_ALTERNATIVES = 2
+
     def fill_email(self, lead: Lead) -> Lead:
         candidates = _email_candidates(lead.name, lead.domain)
         # Verify any already-found email first (cheap, often correct), then the
@@ -382,16 +385,22 @@ class PatternGuessProvider:
                         "email": candidate,
                         "email_confidence": "high",
                         "email_status": "valid",
+                        "email_alternatives": [],  # verified — no need to hedge
                     }
                     if candidate != lead.email:  # keep the original source if it was already this email
                         updates["source"] = "pattern"
                     return lead.model_copy(update=updates)
+
+        # Nothing verified valid: surface a few likely patterns to try by hand.
         if lead.email:
-            return lead  # nothing verified valid — keep the real find, don't downgrade it
+            # Keep the real find, but offer alternate patterns as backups.
+            alternatives = [c for c in candidates if c != lead.email][: self.MAX_ALTERNATIVES]
+            return lead.model_copy(update={"email_alternatives": alternatives}) if alternatives else lead
         if not candidates:
             return lead
         return lead.model_copy(update={
             "email": candidates[0],
+            "email_alternatives": candidates[1 : 1 + self.MAX_ALTERNATIVES],
             "email_confidence": "low",
             "source": "pattern",
         })

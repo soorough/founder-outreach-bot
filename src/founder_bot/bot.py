@@ -19,6 +19,10 @@ def _format_preview(result: Result, label: str, signature: str = "") -> str:
     lead = result.lead
     email = lead.email or "(none found)"
     status = f", {lead.email_status}" if lead.email_status else ""
+    alternatives = (
+        f"*Also try:* {', '.join(lead.email_alternatives)}\n"
+        if lead.email_alternatives else ""
+    )
     warnings = "\n".join(f"⚠️ {w}" for w in result.warnings)
     body = result.draft.body + (f"\n\n{signature}" if signature else "")
     return (
@@ -26,7 +30,8 @@ def _format_preview(result: Result, label: str, signature: str = "") -> str:
         f"*To:* {lead.name}"
         f"{' — ' + lead.title if lead.title else ''}"
         f"{' @ ' + lead.company if lead.company else ''}\n"
-        f"*Email:* {email} ({lead.email_confidence}{status})\n\n"
+        f"*Email:* {email} ({lead.email_confidence}{status})\n"
+        f"{alternatives}\n"
         f"*Subject:* {result.draft.subject}\n\n"
         f"{body}\n\n"
         f"{warnings}"

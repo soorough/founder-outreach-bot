@@ -263,6 +263,32 @@ def test_pattern_guess_no_domain_unchanged():
     assert PatternGuessProvider().fill_email(Lead(name="Ada Lovelace")).email is None
 
 
+def test_pattern_low_guess_offers_alternatives():
+    out = PatternGuessProvider().fill_email(Lead(name="Ada Lovelace", domain="ae.com"))
+    assert out.email == "ada.lovelace@ae.com"
+    assert out.email_confidence == "low"
+    # at least the first@ pattern is offered as a backup
+    assert "ada@ae.com" in out.email_alternatives
+    assert out.email not in out.email_alternatives  # no duplicate of the primary
+
+
+def test_pattern_verified_email_has_no_alternatives():
+    out = PatternGuessProvider(verify=lambda e: "valid").fill_email(
+        Lead(name="Ada Lovelace", domain="ae.com")
+    )
+    assert out.email_confidence == "high"
+    assert out.email_alternatives == []
+
+
+def test_pattern_kept_email_gets_backup_alternatives():
+    out = PatternGuessProvider(verify=lambda e: "invalid").fill_email(
+        Lead(name="Ada Lovelace", domain="ae.com", email="found@ae.com",
+             email_confidence="medium", source="hunter")
+    )
+    assert out.email == "found@ae.com"            # kept the real find
+    assert "ada.lovelace@ae.com" in out.email_alternatives  # but offers patterns to try
+
+
 def test_pattern_tries_combos_and_keeps_first_valid():
     # Only "flast" (alovelace@) verifies valid; provider must land on it.
     def verify(email):

@@ -14,6 +14,7 @@ class Lead(BaseModel):
     email_confidence: Confidence = "none"
     email_status: Optional[str] = None  # Hunter verifier: valid | invalid | accept_all | unknown ...
     source: Optional[Source] = None
+    email_alternatives: list[str] = []  # other likely patterns to try when unverified
 
 
 class Draft(BaseModel):
