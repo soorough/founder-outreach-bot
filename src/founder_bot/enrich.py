@@ -1,4 +1,5 @@
 import re
+import unicodedata
 from typing import Optional, Protocol
 from urllib.parse import urlparse
 
@@ -328,13 +329,24 @@ class DuckDuckGoDomainResolver:
         return lead.model_copy(update={"domain": best}) if best else lead
 
 
+def _ascii_fold(text: str) -> str:
+    """Fold accents/diacritics to plain ASCII for email local-parts, the way
+    addresses are normally formed ('Añazco' → 'anazco'). Non-ASCII chars (which
+    are invalid in an email local-part) are dropped.
+    """
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).encode(
+        "ascii", "ignore"
+    ).decode("ascii")
+
+
 def _email_candidates(name: Optional[str], domain: Optional[str]) -> list:
     """Common corporate email local-parts for a name @ domain, ordered roughly by
     real-world frequency (first.last most common). Deduped, preserving order.
     """
     if not domain or not name:
         return []
-    parts = [p for p in name.lower().split() if p.isalpha()]
+    parts = [p for p in _ascii_fold(name).lower().split() if p.isalpha()]
     if not parts:
         return []
     first, last = parts[0], parts[-1]

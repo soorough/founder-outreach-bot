@@ -263,6 +263,13 @@ def test_pattern_guess_no_domain_unchanged():
     assert PatternGuessProvider().fill_email(Lead(name="Ada Lovelace")).email is None
 
 
+def test_pattern_folds_accents_to_ascii_emails():
+    out = PatternGuessProvider().fill_email(Lead(name="Martín Añazco", domain="acme.uy"))
+    assert out.email == "martin.anazco@acme.uy"          # ñ/í folded, no non-ASCII
+    assert all(e.isascii() for e in [out.email, *out.email_alternatives])
+    assert "martin@acme.uy" in out.email_alternatives
+
+
 def test_pattern_low_guess_offers_alternatives():
     out = PatternGuessProvider().fill_email(Lead(name="Ada Lovelace", domain="ae.com"))
     assert out.email == "ada.lovelace@ae.com"

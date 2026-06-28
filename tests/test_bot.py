@@ -101,6 +101,35 @@ def test_save_targets_the_right_draft_even_after_more_urls():
     assert "Alice" in query.edited
 
 
+def test_save_includes_alternatives_note_in_draft_body():
+    saved = []
+    bot = Bot(owner_id=42, pipeline=_Pipeline({}),
+              create_gmail_draft=lambda email, draft: saved.append((email, draft.body)))
+    result = Result(
+        lead=Lead(name="Ada", domain="ae.com", email="ada.lovelace@ae.com",
+                  email_confidence="low", email_alternatives=["ada@ae.com", "alovelace@ae.com"]),
+        draft=Draft(subject="S", body="Hi Ada,"),
+    )
+    token = bot._store(result)
+    asyncio.run(bot.handle_save(_obj(callback_query=_FakeQuery(token)), None))
+
+    email, body = saved[0]
+    assert email == "ada.lovelace@ae.com"            # primary still the To address
+    assert "also try: ada@ae.com, alovelace@ae.com" in body
+    assert body.endswith("Hi Ada,")                  # original body preserved below the note
+
+
+def test_save_without_alternatives_leaves_body_unchanged():
+    saved = []
+    bot = Bot(owner_id=42, pipeline=_Pipeline({}),
+              create_gmail_draft=lambda email, draft: saved.append((email, draft.body)))
+    result = Result(lead=Lead(name="Ada", email="ada@ae.com", email_confidence="high"),
+                    draft=Draft(subject="S", body="Hi Ada,"))
+    token = bot._store(result)
+    asyncio.run(bot.handle_save(_obj(callback_query=_FakeQuery(token)), None))
+    assert saved[0][1] == "Hi Ada,"                  # no note prepended
+
+
 def test_each_cofounder_gets_a_distinct_token():
     saved = []
     bot = _make_bot({"u": [_result("Ada", "ada@ae.com"), _result("Bob", "bob@ae.com")]}, saved)
