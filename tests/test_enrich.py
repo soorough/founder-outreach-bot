@@ -56,7 +56,7 @@ def test_linkedin_scrape_parses_name_and_company():
     provider = LinkedInScrapeProvider(_client(lambda r: httpx.Response(200, text=html)))
     lead = provider.find(URL)
     assert lead.name == "Pablo Omenaca Muro"
-    assert lead.company == "Karumi (YC F25)"
+    assert lead.company == "Karumi"          # accolade parenthetical stripped
     assert lead.email is None
 
 
@@ -66,6 +66,28 @@ def test_linkedin_scrape_name_only_title():
     lead = provider.find(URL)
     assert lead.name == "Ada Lovelace"
     assert lead.company is None
+
+
+def test_linkedin_scrape_cleans_polluted_headline_and_dash_trailer():
+    # Real-world title: "- LinkedIn" trailer + role prefix + accolades.
+    html = _linkedin_html("Sasha Collin - Building Lemrock | YC S24 | Forbes 30u30 - LinkedIn")
+    provider = LinkedInScrapeProvider(_client(lambda r: httpx.Response(200, text=html)))
+    lead = provider.find(URL)
+    assert lead.name == "Sasha Collin"
+    assert lead.company == "Lemrock"         # not "...Forbes 30u30 - LinkedIn"
+
+
+def test_linkedin_scrape_strips_role_prefix():
+    html = _linkedin_html("Jane Doe - Founder at Acme Corp | LinkedIn")
+    lead = LinkedInScrapeProvider(_client(lambda r: httpx.Response(200, text=html))).find(URL)
+    assert lead.company == "Acme Corp"
+
+
+def test_linkedin_scrape_generic_headline_is_not_a_company():
+    html = _linkedin_html("Martin Lopez - Professional Profile | LinkedIn")
+    lead = LinkedInScrapeProvider(_client(lambda r: httpx.Response(200, text=html))).find(URL)
+    assert lead.name == "Martin Lopez"
+    assert lead.company is None              # placeholder, not a real employer
 
 
 def test_linkedin_scrape_http_error_returns_none():

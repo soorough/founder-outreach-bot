@@ -65,20 +65,54 @@ def _best_company_domain(domains: list, company: Optional[str]) -> Optional[str]
     return candidates[0]
 
 
+# Leading role/intent phrases in a headline before the actual company name.
+_ROLE_PREFIX = re.compile(
+    r"^(building|launching|growing|scaling|making|creating|"
+    r"co-?founder(\s+(and|&)\s+\w+)?(\s+(at|of))?|"
+    r"founder(\s+(and|&)\s+\w+)?(\s+(at|of))?|"
+    r"ceo(\s+(at|@|of))?|cto(\s+(at|@|of))?|head of \w+ at)\s+",
+    re.IGNORECASE,
+)
+
+# Generic LinkedIn headline labels (multi-language) that aren't a company.
+_GENERIC_HEADLINES = {
+    "professional profile", "perfil profesional", "profil professionnel",
+    "perfil profissional", "profilo professionale", "linkedin",
+}
+
+
+def _company_from_headline(headline: str) -> Optional[str]:
+    """Extract a clean company name from a freeform LinkedIn headline like
+    "Building Lemrock | YC S24 | Forbes 30u30" → "Lemrock". Takes the first
+    segment, strips role/intent prefixes and parentheticals, and rejects generic
+    placeholders — so accolades (YC, Forbes 30u30) never leak into domain lookup.
+    """
+    if not headline:
+        return None
+    segment = re.split(r"\s*[|·•]\s*", headline)[0].strip()  # before first separator
+    segment = _ROLE_PREFIX.sub("", segment).strip()
+    segment = re.sub(r"\s*\(.*?\)\s*", " ", segment).strip()  # drop "(YC F25)" etc.
+    if not segment or segment.lower() in _GENERIC_HEADLINES:
+        return None
+    return segment
+
+
 def _parse_linkedin_title(raw_title: str) -> Optional[tuple[str, Optional[str]]]:
     """Parse a LinkedIn page/result title into (name, company).
 
-    Titles look like "Name - Company | LinkedIn" (or "Name | LinkedIn"). Returns
-    None if no name can be extracted. Shared by the direct scraper and the
-    search-engine identity provider, which both see the same indexed title.
+    Titles look like "Name - Headline - LinkedIn" or "Name - Headline | LinkedIn"
+    (the headline is freeform and often carries accolades). Returns None if no
+    name can be extracted. Shared by the direct scraper and the search-engine
+    identity provider, which both see the same indexed title.
     """
     title = re.sub(r"\s+", " ", raw_title).strip()
-    title = re.sub(r"\s*\|\s*LinkedIn.*$", "", title, flags=re.IGNORECASE).strip()
+    # Strip the trailing "<separator> LinkedIn" tail — separator may be | - – — ·.
+    title = re.sub(r"\s*[|\-–—·]\s*LinkedIn\b.*$", "", title, flags=re.IGNORECASE).strip()
     if not title or title.lower() == "linkedin":
         return None
     if " - " in title:
-        name, company = title.split(" - ", 1)
-        company = company.strip() or None
+        name, headline = title.split(" - ", 1)
+        company = _company_from_headline(headline.strip())
     else:
         name, company = title, None
     name = name.strip()
