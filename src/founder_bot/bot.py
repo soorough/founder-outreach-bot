@@ -98,16 +98,12 @@ class Bot:
         if result is None:
             await query.edit_message_text("Nothing to save (expired).")
             return
-        draft = result.draft
-        if result.lead.email_alternatives:
-            note = (
-                "If this address bounces, also try: "
-                f"{', '.join(result.lead.email_alternatives)}\n"
-                "(Unverified guess — delete this line before sending.)\n\n"
-            )
-            draft = draft.model_copy(update={"body": note + draft.body})
+        lead = result.lead
+        # Put the best guess plus any unverified alternates all in the To field,
+        # so you can pick the right one and delete the rest before sending.
+        recipients = ", ".join(e for e in [lead.email, *lead.email_alternatives] if e)
         try:
-            self.create_gmail_draft(result.lead.email, draft)
+            self.create_gmail_draft(recipients or None, result.draft)
         except Exception as exc:
             logger.exception("gmail draft failed")
             await query.edit_message_text(f"❌ Could not save draft: {exc}")

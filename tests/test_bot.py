@@ -101,7 +101,7 @@ def test_save_targets_the_right_draft_even_after_more_urls():
     assert "Alice" in query.edited
 
 
-def test_save_includes_alternatives_note_in_draft_body():
+def test_save_puts_alternatives_in_to_field_not_body():
     saved = []
     bot = Bot(owner_id=42, pipeline=_Pipeline({}),
               create_gmail_draft=lambda email, draft: saved.append((email, draft.body)))
@@ -113,13 +113,12 @@ def test_save_includes_alternatives_note_in_draft_body():
     token = bot._store(result)
     asyncio.run(bot.handle_save(_obj(callback_query=_FakeQuery(token)), None))
 
-    email, body = saved[0]
-    assert email == "ada.lovelace@ae.com"            # primary still the To address
-    assert "also try: ada@ae.com, alovelace@ae.com" in body
-    assert body.endswith("Hi Ada,")                  # original body preserved below the note
+    to, body = saved[0]
+    assert to == "ada.lovelace@ae.com, ada@ae.com, alovelace@ae.com"  # all candidates in To
+    assert body == "Hi Ada,"                                          # body untouched
 
 
-def test_save_without_alternatives_leaves_body_unchanged():
+def test_save_single_recipient_when_no_alternatives():
     saved = []
     bot = Bot(owner_id=42, pipeline=_Pipeline({}),
               create_gmail_draft=lambda email, draft: saved.append((email, draft.body)))
@@ -127,7 +126,7 @@ def test_save_without_alternatives_leaves_body_unchanged():
                     draft=Draft(subject="S", body="Hi Ada,"))
     token = bot._store(result)
     asyncio.run(bot.handle_save(_obj(callback_query=_FakeQuery(token)), None))
-    assert saved[0][1] == "Hi Ada,"                  # no note prepended
+    assert saved[0] == ("ada@ae.com", "Hi Ada,")
 
 
 def test_each_cofounder_gets_a_distinct_token():
