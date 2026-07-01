@@ -45,6 +45,30 @@ def test_apollo_forbidden_returns_none():
     assert provider.find(URL) is None
 
 
+def test_apollo_prefers_primary_domain_over_website_url():
+    def handler(request):
+        return httpx.Response(200, json={"person": {
+            "name": "Sahil Dhull", "title": "Founder",
+            "organization": {"name": "Kyra", "primary_domain": "kyra.co",
+                             "website_url": "https://shop.kyra.co/collections/all"},
+        }})
+    lead = ApolloProvider(api_key="k", client=_client(handler)).find(URL)
+    assert lead.domain == "kyra.co"          # canonical company domain, not the shop URL host
+    assert lead.company == "Kyra"
+
+
+def test_apollo_ignores_locked_email_placeholder():
+    def handler(request):
+        return httpx.Response(200, json={"person": {
+            "name": "Sahil Dhull", "email": "email_not_unlocked@domain.com",
+            "organization": {"name": "Kyra", "primary_domain": "kyra.co"},
+        }})
+    lead = ApolloProvider(api_key="k", client=_client(handler)).find(URL)
+    assert lead.email is None                # placeholder dropped
+    assert lead.domain == "kyra.co"          # but the real domain still flows through
+    assert lead.email_confidence == "none"
+
+
 # --- LinkedIn scrape ---
 
 def _linkedin_html(title):

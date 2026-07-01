@@ -174,8 +174,11 @@ class ApolloProvider:
         if not person.get("name"):
             return None
         org = person.get("organization") or {}
-        domain = _domain_from_url(org.get("website_url"))
+        # primary_domain is Apollo's canonical company domain; fall back to the site URL.
+        domain = org.get("primary_domain") or _domain_from_url(org.get("website_url"))
         email = person.get("email")
+        if email and ("not_unlocked" in email or "@" not in email):
+            email = None  # Apollo placeholder when the email isn't revealed/credited
         return Lead(
             name=person["name"],
             title=person.get("title"),
