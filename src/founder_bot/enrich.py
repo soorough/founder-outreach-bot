@@ -46,6 +46,14 @@ def _is_company_domain(domain: Optional[str]) -> bool:
     )
 
 
+def _domain_query(lead: Lead) -> str:
+    """Search query to find a company's real site. Includes the person's name to
+    disambiguate generic brand names (e.g. 'Kyra' → the right one for this founder).
+    """
+    base = f"{lead.company} {lead.name}".strip() if lead.name else (lead.company or "")
+    return f"{base} official website".strip()
+
+
 def _best_company_domain(domains: list, company: Optional[str]) -> Optional[str]:
     """From candidate domains (in result-rank order), pick the company's real site.
 
@@ -190,6 +198,50 @@ class ApolloProvider:
         )
 
 
+class ProxycurlProvider:
+    """Paid identity provider (Proxycurl): LinkedIn URL → authoritative current
+    employer + title from the person's real work history, not the freeform
+    headline. Pay-per-lookup; no-ops without a key. Returns no email (the domain
+    resolver + guessers take the reliable company name from here); sets the domain
+    only if the response exposes a company website.
+    """
+
+    ENDPOINT = "https://nubela.co/proxycurl/api/v2/linkedin"
+
+    def __init__(self, api_key: Optional[str], client: httpx.Client):
+        self.api_key = api_key
+        self.client = client
+
+    def find(self, linkedin_url: str) -> Optional[Lead]:
+        if not self.api_key:
+            return None
+        try:
+            resp = self.client.get(
+                self.ENDPOINT,
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                params={"url": linkedin_url, "fallback_to_cache": "on-error"},
+            )
+            resp.raise_for_status()
+        except httpx.HTTPError:
+            return None
+        data = resp.json() or {}
+        name = " ".join(p for p in [data.get("first_name"), data.get("last_name")] if p).strip()
+        name = name or (data.get("full_name") or "").strip()
+        if not name:
+            return None
+        experiences = data.get("experiences") or []
+        # Current role = the one still open (no end date); else the most recent.
+        current = next((e for e in experiences if e and not e.get("ends_at")), None)
+        current = current or (experiences[0] if experiences else {})
+        domain = _domain_from_url(current.get("company_website")) if current else None
+        return Lead(
+            name=name,
+            title=current.get("title"),
+            company=current.get("company"),
+            domain=domain,
+        )
+
+
 class LinkedInScrapeProvider:
     """Free identity provider: read name + current company from a public LinkedIn
     profile's SEO meta tags (works around the authwall, which still exposes them).
@@ -328,7 +380,7 @@ class CompanyDomainResolver:
             resp = self.client.post(
                 self.SEARCH_URL,
                 headers={"X-API-KEY": self.api_key, "Content-Type": "application/json"},
-                json={"q": f"{lead.company} official website", "num": 10},
+                json={"q": _domain_query(lead), "num": 10},
             )
             resp.raise_for_status()
         except httpx.HTTPError:
@@ -355,7 +407,7 @@ class DuckDuckGoDomainResolver:
         try:
             resp = self.client.post(
                 self.SEARCH_URL,
-                data={"q": f"{lead.company} startup official website"},
+                data={"q": _domain_query(lead)},
                 headers={"User-Agent": _BROWSER_UA},
             )
             resp.raise_for_status()

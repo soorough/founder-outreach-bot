@@ -35,6 +35,7 @@ class Settings:
     llm_base_url: str
     llm_model: str
     apollo_api_key: Optional[str]
+    proxycurl_api_key: Optional[str]
     hunter_api_key: Optional[str]
     serper_api_key: Optional[str]
     gmail_address: str
@@ -55,6 +56,7 @@ class Settings:
             llm_base_url=os.getenv("LLM_BASE_URL", "https://api.deepseek.com"),
             llm_model=os.getenv("LLM_MODEL", "deepseek-chat"),
             apollo_api_key=os.getenv("APOLLO_API_KEY") or None,
+            proxycurl_api_key=os.getenv("PROXYCURL_API_KEY") or None,
             hunter_api_key=os.getenv("HUNTER_API_KEY") or None,
             serper_api_key=os.getenv("SERPER_API_KEY") or None,
             gmail_address=_require("GMAIL_ADDRESS"),

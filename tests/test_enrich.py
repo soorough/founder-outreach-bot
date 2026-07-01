@@ -2,7 +2,7 @@ import httpx
 from founder_bot.enrich import (
     ApolloProvider, LinkedInScrapeProvider, HunterProvider, PatternGuessProvider,
     CompanyDomainResolver, DuckDuckGoDomainResolver, EmailVerifier, TeamFinder,
-    EnrichmentChain, SerperIdentityProvider, SlugNameProvider,
+    EnrichmentChain, ProxycurlProvider, SerperIdentityProvider, SlugNameProvider,
 )
 from founder_bot.models import Lead
 
@@ -67,6 +67,36 @@ def test_apollo_ignores_locked_email_placeholder():
     assert lead.email is None                # placeholder dropped
     assert lead.domain == "kyra.co"          # but the real domain still flows through
     assert lead.email_confidence == "none"
+
+
+# --- Proxycurl (paid, authoritative current employer) ---
+
+def test_proxycurl_returns_current_employer_from_work_history():
+    def handler(request):
+        assert request.url.host == "nubela.co"
+        assert request.url.params["url"] == URL
+        assert request.headers["authorization"] == "Bearer k"
+        return httpx.Response(200, json={
+            "first_name": "Sahil", "last_name": "Dhull",
+            "experiences": [
+                {"company": "KYRA", "title": "Founder", "ends_at": None,
+                 "company_website": "https://thekyra.com"},
+                {"company": "OldCo", "title": "Engineer", "ends_at": {"year": 2022}},
+            ],
+        })
+    lead = ProxycurlProvider(api_key="k", client=_client(handler)).find(URL)
+    assert lead.name == "Sahil Dhull"
+    assert lead.company == "KYRA"           # real current employer, not a headline
+    assert lead.title == "Founder"
+    assert lead.domain == "thekyra.com"     # from company_website when present
+
+
+def test_proxycurl_no_key_returns_none():
+    assert ProxycurlProvider(api_key=None, client=_client(lambda r: httpx.Response(500))).find(URL) is None
+
+
+def test_proxycurl_http_error_returns_none():
+    assert ProxycurlProvider(api_key="k", client=_client(lambda r: httpx.Response(402))).find(URL) is None
 
 
 # --- LinkedIn scrape ---
@@ -226,6 +256,17 @@ def test_resolver_picks_first_non_aggregator_domain():
     base = Lead(name="Pablo", company="Karumi (YC F25)")
     out = CompanyDomainResolver(api_key="k", client=_client(handler)).fill_email(base)
     assert out.domain == "karumi.ai"
+
+
+def test_resolver_query_includes_person_name_for_disambiguation():
+    seen = {}
+    def handler(request):
+        seen["q"] = request.read().decode()
+        return httpx.Response(200, json={"organic": [{"link": "https://kyra.co"}]})
+    CompanyDomainResolver(api_key="k", client=_client(handler)).fill_email(
+        Lead(name="Sahil Dhull", company="Kyra")
+    )
+    assert "Kyra" in seen["q"] and "Sahil Dhull" in seen["q"]  # name disambiguates the brand
 
 
 def test_resolver_skips_wellfound_and_prefers_name_match():
