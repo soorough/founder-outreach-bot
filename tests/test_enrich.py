@@ -79,8 +79,7 @@ def test_proxycurl_returns_current_employer_from_work_history():
         return httpx.Response(200, json={
             "first_name": "Sahil", "last_name": "Dhull",
             "experiences": [
-                {"company": "KYRA", "title": "Founder", "ends_at": None,
-                 "company_website": "https://thekyra.com"},
+                {"company": "KYRA", "title": "Founder", "ends_at": None},
                 {"company": "OldCo", "title": "Engineer", "ends_at": {"year": 2022}},
             ],
         })
@@ -88,7 +87,7 @@ def test_proxycurl_returns_current_employer_from_work_history():
     assert lead.name == "Sahil Dhull"
     assert lead.company == "KYRA"           # real current employer, not a headline
     assert lead.title == "Founder"
-    assert lead.domain == "thekyra.com"     # from company_website when present
+    assert lead.domain is None              # person response has no company domain; resolver finds it
 
 
 def test_proxycurl_no_key_returns_none():

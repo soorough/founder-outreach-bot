@@ -201,9 +201,9 @@ class ApolloProvider:
 class ProxycurlProvider:
     """Paid identity provider (Proxycurl): LinkedIn URL → authoritative current
     employer + title from the person's real work history, not the freeform
-    headline. Pay-per-lookup; no-ops without a key. Returns no email (the domain
-    resolver + guessers take the reliable company name from here); sets the domain
-    only if the response exposes a company website.
+    headline. Pay-per-lookup; no-ops without a key. Returns no email or domain —
+    Proxycurl's person response carries neither for the company; the domain
+    resolver + guessers take the reliable company name from here.
     """
 
     ENDPOINT = "https://nubela.co/proxycurl/api/v2/linkedin"
@@ -233,13 +233,7 @@ class ProxycurlProvider:
         # Current role = the one still open (no end date); else the most recent.
         current = next((e for e in experiences if e and not e.get("ends_at")), None)
         current = current or (experiences[0] if experiences else {})
-        domain = _domain_from_url(current.get("company_website")) if current else None
-        return Lead(
-            name=name,
-            title=current.get("title"),
-            company=current.get("company"),
-            domain=domain,
-        )
+        return Lead(name=name, title=current.get("title"), company=current.get("company"))
 
 
 class LinkedInScrapeProvider:
